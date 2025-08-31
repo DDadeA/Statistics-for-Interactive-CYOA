@@ -64,9 +64,6 @@ export async function POST({ request, platform }: { request: Request; platform: 
 
 		return new Response('Log entry created', { status: 201 });
 	} catch (error) {
-		return new Response('Failed to process POST request', {
-			status: 500,
-			statusText: String(error)
-		});
+		return new Response(String(error), { status: 500 });
 	}
 }
