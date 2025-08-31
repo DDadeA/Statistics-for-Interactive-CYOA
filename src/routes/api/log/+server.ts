@@ -47,10 +47,13 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		}
 
 		// -- // Data validation
-		// -- // For now, just ensure data is an object
-		if (typeof body.data !== 'object') {
-			return new Response('Bad Request: data must be an object', { status: 400 });
-		}
+		// -- // Skip for now
+		console.log(body);
+		console.log(body.data);
+		console.log(typeof body.data);
+		// if (typeof body.data !== 'object') {
+		// 	return new Response('Bad Request: data must be an object', { status: 400 });
+		// }
 
 		// Insert into D1
 		let result = await query(
