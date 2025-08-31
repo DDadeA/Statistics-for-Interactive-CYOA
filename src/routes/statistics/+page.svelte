@@ -19,10 +19,10 @@
 				Authorization: `Bearer ${secretKey}`
 			}
 			// body: JSON.stringify({ secret_key: secretKey })
-		}).then((res) => res.json());
+		});
 
 		console.log(result);
-		logData = result.logs || [];
+		// logData = result || [];
 	}
 </script>
 
