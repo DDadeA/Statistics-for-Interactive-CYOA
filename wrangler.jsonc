@@ -6,13 +6,18 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "statistics-for-interactive-cyoa",
 	"compatibility_date": "2025-08-29",
-	"compatibility_flags": [
-		"nodejs_als"
-	],
+	"compatibility_flags": ["nodejs_als"],
 	"pages_build_output_dir": ".svelte-kit/cloudflare",
 	"observability": {
 		"enabled": true
-	}
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "sssic",
+			"database_id": "e4b8a289-9c8c-46f6-bef6-9c4d2974f1c0"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
