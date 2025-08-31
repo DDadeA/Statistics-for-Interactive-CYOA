@@ -5,7 +5,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 	const project_id = crypto.randomUUID();
 	const secret_key = crypto.randomUUID();
 
-	const secret_key_hash = await getHash(secret_key);
+	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
 	// Store in D1
 	let result = await query(

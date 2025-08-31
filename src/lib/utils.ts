@@ -1,7 +1,4 @@
-// Get pepper from environment variable
-const pepper = process.env.pepper;
-
-export const getHash = async (secret_key: string) => {
+export const getHash = async (secret_key: string, pepper: string) => {
 	// Ensure secret_key is a string
 	if (typeof secret_key !== 'string') {
 		throw new Error('Secret key must be a string');

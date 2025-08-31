@@ -11,6 +11,7 @@ declare global {
 			env: {
 				COUNTER: DurableObjectNamespace;
 				DB: D1Database;
+				pepper: string;
 			};
 			context: {
 				waitUntil(promise: Promise<any>): void;

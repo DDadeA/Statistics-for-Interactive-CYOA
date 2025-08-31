@@ -11,7 +11,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 		return new Response('Unauthorized', { status: 401 });
 	}
 
-	const secret_key_hash = await getHash(secret_key);
+	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
 	// Get project_id from projects table
 	let project = await query(platform, 'SELECT project_id FROM projects WHERE secret_key_hash = ?', [
@@ -36,7 +36,7 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		if (!userIP) {
 			return new Response('Unable to determine user IP', { status: 400 });
 		}
-		const userIPHash = await getHash(String(userIP));
+		const userIPHash = await getHash(String(userIP), platform.env.pepper);
 
 		// Get Data //
 		const body = await request.json();
