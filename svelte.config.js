@@ -8,7 +8,8 @@ const config = {
 				include: ['/*'],
 				exclude: ['<all>']
 			}
-		})
+		}),
+		checkOrigin: false
 	}
 };
 
