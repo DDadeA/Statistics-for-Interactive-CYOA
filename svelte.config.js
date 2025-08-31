@@ -9,7 +9,9 @@ const config = {
 				exclude: ['<all>']
 			}
 		}),
-		checkOrigin: false
+		csrf: {
+			checkOrigin: false
+		}
 	}
 };
 
