@@ -39,5 +39,14 @@
 	});
 </script>
 
+<h1>Please add this code into {'\<body\>'} of the index.html</h1>
+<pre class="code-block">
+	{`
+	<script src="https://statistics-for-interactive-cyoa.pages.dev/logger.js"></script>
+	<script>
+		initializeLogging("${logData.project_id}")
+	</script>
+	`}
+</pre>
 <h1 class="text-2xl font-bold mb-4">Statistics</h1>
 <pre>{String(logData)}</pre>
