@@ -42,24 +42,24 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		const body = await request.json();
 
 		// -- // Validate body
-		if (!body.project_id || !body.data) {
+		if (!body.projectId || !body.data) {
 			return new Response('Bad Request', { status: 400 });
 		}
 
 		// -- // Data validation
 		// -- // Skip for now
-		console.log(body);
-		console.log(body.data);
-		console.log(typeof body.data);
 		// if (typeof body.data !== 'object') {
 		// 	return new Response('Bad Request: data must be an object', { status: 400 });
 		// }
+		if (typeof body.data !== 'string') {
+			body.data = JSON.stringify(body.data);
+		}
 
 		// Insert into D1
 		let result = await query(
 			platform,
 			'INSERT INTO logs (project_id, uid, data, created_at) VALUES (?, ?, ?, ?)',
-			[body.project_id, userIPHash, body.data, new Date().toISOString()]
+			[body.projectId, userIPHash, body.data, new Date().toISOString()]
 		);
 
 		return new Response('Log entry created', { status: 201 });
