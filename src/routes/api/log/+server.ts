@@ -1,6 +1,16 @@
 import { query, getHash } from '$lib/utils';
 import type { RequestHandler } from '@sveltejs/kit';
 
+export const OPTIONS: RequestHandler = async () => {
+	return new Response(null, {
+		headers: {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'POST, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type'
+		}
+	});
+};
+
 // Get
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
 	// Get logs from D1
@@ -30,11 +40,15 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 // Post - no authentication
 export async function POST({ request, platform }: { request: Request; platform: App.Platform }) {
+	const corsHeaders = {
+		'Access-Control-Allow-Origin': '*'
+	};
+
 	try {
 		// Get user IP //
 		const userIP = request.headers.get('cf-connecting-ip');
 		if (!userIP) {
-			return new Response('Unable to determine user IP', { status: 400 });
+			return new Response('Unable to determine user IP', { status: 400, headers: corsHeaders });
 		}
 		const userIPHash = await getHash(String(userIP), platform.env.pepper);
 
@@ -43,7 +57,7 @@ export async function POST({ request, platform }: { request: Request; platform: 
 
 		// -- // Validate body
 		if (!body.projectId || !body.data) {
-			return new Response('Bad Request', { status: 400 });
+			return new Response('Bad Request', { status: 400, headers: corsHeaders });
 		}
 
 		// -- // Data validation
@@ -62,8 +76,8 @@ export async function POST({ request, platform }: { request: Request; platform: 
 			[body.projectId, userIPHash, body.data, new Date().toISOString()]
 		);
 
-		return new Response('Log entry created', { status: 201 });
+		return new Response('Log entry created', { status: 201, headers: corsHeaders });
 	} catch (error) {
-		return new Response(String(error), { status: 500 });
+		return new Response(String(error), { status: 500, headers: corsHeaders });
 	}
 }

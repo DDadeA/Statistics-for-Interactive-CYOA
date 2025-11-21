@@ -28,14 +28,22 @@ const sendAnalytics = (eventType, projectId) => {
       userAgent: navigator.userAgent,
   });
 
-  fetch('https://statistics-for-interactive-cyoa.pages.dev/api/log', {
+  const url = 'https://statistics-for-interactive-cyoa.pages.dev/api/log';
+  const body = JSON.stringify({
+      projectId: projectId,
+      data: analyticsData,
+  });
+
+  if (navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      if (navigator.sendBeacon(url, blob)) {
+          return;
+      }
+  }
+
+  fetch(url, {
     method: 'POST',
-    body: JSON.stringify(
-        {
-            projectId: projectId,
-            data: analyticsData,
-        }
-    ),
+    body: body,
     headers: { 'Content-Type': 'application/json' },
     keepalive: true
   });

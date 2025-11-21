@@ -23,7 +23,7 @@
 
 	const handleCreateNew = async () => {
 		// Fetch to registration API to create new project
-		let response = await fetch('/api/register', {
+		let response = await fetch('/api/registration', {
 			method: 'GET'
 		});
 		let data = await response.json();
