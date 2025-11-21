@@ -13,7 +13,7 @@
 		// Handle the form submission logic here
 		// console.log('Secret Key submitted:', secretKey);
 		let result = await fetch('/api/log', {
-			method: 'POST',
+			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json',
 				Authorization: `Bearer ${secretKey}`
@@ -21,7 +21,7 @@
 		}).then((res) => res.json());
 
 		console.log(result);
-		logData = result.result || [];
+		logData = result.results || [];
 	}
 
 	onMount(() => {
@@ -44,9 +44,9 @@
 	{`
 	<script src="https://statistics-for-interactive-cyoa.pages.dev/logger.js"></script>
 	<script>
-		initializeLogging("${logData.project_id}")
+		initializeLogging("${logData.length > 0 ? logData[0].project_id : 'YOUR_PROJECT_ID'}")
 	</script>
 	`}
 </pre>
 <h1 class="text-2xl font-bold mb-4">Statistics</h1>
-<pre>{String(logData)}</pre>
+<pre>{JSON.stringify(logData, null, 2)}</pre>

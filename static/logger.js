@@ -11,12 +11,17 @@ setTimeout(() => {
 };
   
 const sendAnalytics = (eventType, projectId) => {
+  console.log(`[Logger] sendAnalytics called. Event: ${eventType}`);
+
+  const choices = getChoices();
+  console.log(`[Logger] Choices found: ${choices.length}`);
+
   const analyticsData = JSON.stringify({
     eventType: eventType,
     version: version,
     projectHash: getProjectHash(),
 
-    selectedChoices: getChoices().filter(c=>c.isActive).map(c=>c.id),
+    selectedChoices: choices.filter(c=>c.isActive).map(c=>c.id),
     timeOnPage: Date.now() - startTime,
     timestamp: new Date().toISOString(),
     
@@ -28,6 +33,8 @@ const sendAnalytics = (eventType, projectId) => {
       userAgent: navigator.userAgent,
   });
 
+  console.log(`[Logger] Payload prepared. Size: ${analyticsData.length} bytes`);
+
   const url = 'https://statistics-for-interactive-cyoa.pages.dev/api/log';
   const body = JSON.stringify({
       projectId: projectId,
@@ -36,16 +43,24 @@ const sendAnalytics = (eventType, projectId) => {
 
   if (navigator.sendBeacon) {
       const blob = new Blob([body], { type: 'application/json' });
-      if (navigator.sendBeacon(url, blob)) {
+      const queued = navigator.sendBeacon(url, blob);
+      console.log(`[Logger] sendBeacon queued: ${queued}`);
+      if (queued) {
           return;
       }
+      console.warn(`[Logger] sendBeacon failed to queue, falling back to fetch.`);
   }
 
+  console.log(`[Logger] Attempting fetch...`);
   fetch(url, {
     method: 'POST',
     body: body,
     headers: { 'Content-Type': 'application/json' },
     keepalive: true
+  }).then(response => {
+      console.log(`[Logger] Fetch response: ${response.status} ${response.statusText}`);
+  }).catch(error => {
+      console.error(`[Logger] Fetch error:`, error);
   });
 
 };
