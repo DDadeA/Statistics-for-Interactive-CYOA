@@ -1,12 +1,16 @@
 import { query, getHash } from '$lib/utils';
 import type { RequestHandler } from '@sveltejs/kit';
 
-export const OPTIONS: RequestHandler = async () => {
+export const OPTIONS: RequestHandler = async ({ request }) => {
+	const origin = request.headers.get('Origin');
+
 	return new Response(null, {
 		headers: {
-			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Origin': origin || '*',
 			'Access-Control-Allow-Methods': 'POST, OPTIONS',
-			'Access-Control-Allow-Headers': 'Content-Type'
+			'Access-Control-Allow-Headers': 'Content-Type',
+			'Access-Control-Allow-Credentials': 'true',
+			Vary: 'Origin'
 		}
 	});
 };
@@ -40,8 +44,11 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 // Post - no authentication
 export async function POST({ request, platform }: { request: Request; platform: App.Platform }) {
+	const origin = request.headers.get('Origin');
 	const corsHeaders = {
-		'Access-Control-Allow-Origin': '*'
+		'Access-Control-Allow-Origin': origin || '*',
+		'Access-Control-Allow-Credentials': 'true',
+		Vary: 'Origin'
 	};
 
 	try {
