@@ -19,12 +19,12 @@
 	// Options
 	let uniqueUsersOnly = false;
 	let timeRange = 'all'; // 'all', '24h', '7d', '30d'
-	let isAccumulated = true;
+	let timeUnit = 'day'; // 'day', 'hour', 'week', 'min'
 	let selectedFilterChoice = '';
 
 	// Derived Data
 	let filteredLogData: LogEntry[] = [];
-	let visitorGraphData: { date: string; count: number; label: string }[] = [];
+	let visitorGraphData: { date: string; count: number; accumulated: number; label: string }[] = [];
 	let rowStatistics: any[] = [];
 	let generalStats: any = {};
 	let topCorrelations: { idA: string; idB: string; count: number; percent: number }[] = [];
@@ -75,7 +75,6 @@
 
 		// 4. Visitor Graph Data
 		const groupedData: Record<string, number> = {};
-		const timeUnit = timeRange === '24h' ? 'hour' : 'day';
 
 		data.forEach((entry) => {
 			const date = new Date(entry.created_at);
@@ -86,6 +85,19 @@
 				date.setMinutes(0, 0, 0);
 				key = date.toISOString();
 				label = `${date.getHours()}:00`;
+			} else if (timeUnit === 'min') {
+				// Round down to minute
+				date.setSeconds(0, 0);
+				key = date.toISOString();
+				label = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+			} else if (timeUnit === 'week') {
+				// Round down to start of week (Monday)
+				const day = date.getDay();
+				const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+				date.setDate(diff);
+				date.setHours(0, 0, 0, 0);
+				key = date.toISOString();
+				label = `${date.getMonth() + 1}/${date.getDate()}`;
 			} else {
 				// Round down to day
 				date.setHours(0, 0, 0, 0);
@@ -101,6 +113,10 @@
 				let label = '';
 				if (timeUnit === 'hour') {
 					label = `${date.getHours()}:00`;
+				} else if (timeUnit === 'min') {
+					label = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+				} else if (timeUnit === 'week') {
+					label = `${date.getMonth() + 1}/${date.getDate()}`;
 				} else {
 					label = `${date.getMonth() + 1}/${date.getDate()}`;
 				}
@@ -108,18 +124,17 @@
 					date: dateStr,
 					count: count,
 					timestamp: date.getTime(),
-					label: label
+					label: label,
+					accumulated: 0
 				};
 			})
 			.sort((a, b) => a.timestamp - b.timestamp);
 
-		if (isAccumulated) {
-			let sum = 0;
-			graphData = graphData.map((item) => {
-				sum += item.count;
-				return { ...item, count: sum };
-			});
-		}
+		let sum = 0;
+		graphData = graphData.map((item) => {
+			sum += item.count;
+			return { ...item, accumulated: sum };
+		});
 
 		visitorGraphData = graphData;
 
@@ -444,7 +459,6 @@
 	<div class="toc">
 		<h3>Table of Contents</h3>
 		<ul>
-			<li><a href="#setup">Setup</a></li>
 			<li><a href="#controls">Controls</a></li>
 			<li><a href="#visitor-graph">Visitor Graph</a></li>
 			<li><a href="#general-stats">General Stats</a></li>
@@ -452,18 +466,6 @@
 			<li><a href="#row-analysis">Row Analysis</a></li>
 			<li><a href="#object-stats">Object Statistics</a></li>
 		</ul>
-	</div>
-
-	<h1 id="setup">Please add this code into {'\<body\>'} of the index.html</h1>
-	<div class="code-block">
-		<pre>
-	{`
-	<script src="https://statistics-for-interactive-cyoa.pages.dev/logger.js"></script>
-	<script>
-		initializeLogging("${logData.length > 0 ? logData[0].project_id : 'YOUR_PROJECT_ID'}")
-	</script>
-	`}
-	</pre>
 	</div>
 
 	<h1 id="controls">Statistics Controls</h1>
@@ -492,6 +494,16 @@
 			</div>
 
 			<div class="select-group">
+				<label for="timeUnit">Group By:</label>
+				<select id="timeUnit" bind:value={timeUnit}>
+					<option value="week">Week</option>
+					<option value="day">Day</option>
+					<option value="hour">Hour</option>
+					<option value="min">Minute</option>
+				</select>
+			</div>
+
+			<div class="select-group">
 				<label for="filterChoice">Filter by Choice:</label>
 				<select id="filterChoice" bind:value={selectedFilterChoice}>
 					<option value="">All Choices</option>
@@ -511,42 +523,56 @@
 
 	<!-- Visitor Graph -->
 	<h2 id="visitor-graph">Visitor Count</h2>
-	<div class="chart-controls">
-		<label class="toggle">
-			<input type="checkbox" bind:checked={isAccumulated} />
-			<span class="slider"></span>
-			<span class="label-text">Accumulated</span>
-		</label>
-	</div>
 	<div class="chart-container">
 		{#if visitorGraphData.length > 0}
+			{@const maxCount = Math.max(...visitorGraphData.map((d) => d.count), 1)}
+			{@const maxAccumulated = Math.max(...visitorGraphData.map((d) => d.accumulated), 1)}
 			<svg viewBox="0 0 1000 300" class="chart">
 				<!-- X and Y Axis -->
 				<line x1="50" y1="250" x2="950" y2="250" stroke="#ccc" />
 				<line x1="50" y1="250" x2="50" y2="50" stroke="#ccc" />
+				<line x1="950" y1="250" x2="950" y2="50" stroke="#ccc" />
 
-				<!-- Data Line -->
+				<!-- Bars (Daily/Hourly Count) -->
+				{#each visitorGraphData as d, i}
+					{@const slotWidth = 900 / visitorGraphData.length}
+					{@const barWidth = slotWidth * 0.8}
+					{@const x = 50 + i * slotWidth + (slotWidth - barWidth) / 2}
+					{@const barHeight = (d.count / maxCount) * 200}
+					<rect
+						{x}
+						y={250 - barHeight}
+						width={barWidth}
+						height={barHeight}
+						fill="#3b82f6"
+						opacity="0.6"
+					>
+						<title>{d.label}: {d.count}</title>
+					</rect>
+				{/each}
+
+				<!-- Line (Accumulated) -->
 				<polyline
 					fill="none"
-					stroke="#3b82f6"
+					stroke="#ef4444"
 					stroke-width="2"
 					points={visitorGraphData
 						.map((d, i) => {
-							const x = 50 + (i / Math.max(1, visitorGraphData.length - 1)) * 900;
-							const maxCount = Math.max(...visitorGraphData.map((d) => d.count));
-							const y = 250 - (d.count / Math.max(1, maxCount)) * 200;
+							const slotWidth = 900 / visitorGraphData.length;
+							const x = 50 + i * slotWidth + slotWidth / 2;
+							const y = 250 - (d.accumulated / maxAccumulated) * 200;
 							return `${x},${y}`;
 						})
 						.join(' ')}
 				/>
 
-				<!-- Data Points (Circles) -->
+				<!-- Data Points (Accumulated) -->
 				{#each visitorGraphData as d, i}
-					{@const x = 50 + (i / Math.max(1, visitorGraphData.length - 1)) * 900}
-					{@const maxCount = Math.max(...visitorGraphData.map((d) => d.count))}
-					{@const y = 250 - (d.count / Math.max(1, maxCount)) * 200}
-					<circle cx={x} cy={y} r="4" fill="#3b82f6" stroke="white" stroke-width="2">
-						<title>{d.label}: {d.count}</title>
+					{@const slotWidth = 900 / visitorGraphData.length}
+					{@const x = 50 + i * slotWidth + slotWidth / 2}
+					{@const y = 250 - (d.accumulated / maxAccumulated) * 200}
+					<circle cx={x} cy={y} r="3" fill="#ef4444" stroke="white" stroke-width="1">
+						<title>Accumulated: {d.accumulated}</title>
 					</circle>
 				{/each}
 
@@ -556,12 +582,27 @@
 					<text x="950" y="270" font-size="12" fill="#666" text-anchor="end"
 						>{visitorGraphData[visitorGraphData.length - 1].label}</text
 					>
-					<text x="40" y="50" font-size="12" fill="#666" text-anchor="end"
-						>{Math.max(...visitorGraphData.map((d) => d.count))}</text
+					<!-- Left Axis Label (Count) -->
+					<text x="40" y="50" font-size="12" fill="#3b82f6" text-anchor="end">{maxCount}</text>
+					<text x="40" y="250" font-size="12" fill="#3b82f6" text-anchor="end">0</text>
+
+					<!-- Right Axis Label (Accumulated) -->
+					<text x="960" y="50" font-size="12" fill="#ef4444" text-anchor="start"
+						>{maxAccumulated}</text
 					>
-					<text x="40" y="250" font-size="12" fill="#666" text-anchor="end">0</text>
+					<text x="960" y="250" font-size="12" fill="#ef4444" text-anchor="start">0</text>
 				{/if}
 			</svg>
+			<div class="chart-legend">
+				<div class="legend-item">
+					<span class="color-box bar"></span>
+					<span>Period Count (Left Axis)</span>
+				</div>
+				<div class="legend-item">
+					<span class="color-box line"></span>
+					<span>Accumulated (Right Axis)</span>
+				</div>
+			</div>
 		{:else}
 			<p class="text-gray italic">Not enough data to display graph.</p>
 		{/if}
@@ -702,16 +743,6 @@
 	h2,
 	h3 {
 		margin-bottom: 10px;
-	}
-	.code-block {
-		background-color: #1f2937;
-		color: #f3f4f6;
-		padding: 1rem;
-		border-radius: 0.375rem;
-		overflow-x: auto;
-		margin-bottom: 2rem;
-		font-family: monospace;
-		font-size: 0.875rem;
 	}
 	.button-group {
 		display: flex;
@@ -855,6 +886,31 @@
 		margin-top: 1rem;
 		flex-wrap: wrap;
 	}
+	.select-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.select-group label {
+		font-size: 0.875rem;
+		font-weight: bold;
+		color: #374151;
+	}
+	select {
+		padding: 0.5rem;
+		border: 1px solid #d1d5db;
+		border-radius: 0.375rem;
+		background-color: white;
+		font-size: 0.875rem;
+		color: #111827;
+		cursor: pointer;
+		min-width: 150px;
+	}
+	select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+	}
 	.toggle {
 		display: flex;
 		align-items: center;
@@ -987,5 +1043,32 @@
 	}
 	html {
 		scroll-behavior: smooth;
+	}
+	.chart-legend {
+		display: flex;
+		justify-content: center;
+		gap: 2rem;
+		margin-top: 1rem;
+	}
+	.legend-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		color: #666;
+	}
+	.color-box {
+		width: 1rem;
+		height: 1rem;
+		display: inline-block;
+	}
+	.color-box.bar {
+		background-color: #3b82f6;
+		opacity: 0.6;
+	}
+	.color-box.line {
+		background-color: #ef4444;
+		height: 2px;
+		margin-top: 0.4rem;
 	}
 </style>
