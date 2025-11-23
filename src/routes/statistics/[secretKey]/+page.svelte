@@ -19,7 +19,7 @@
 	// Options
 	let uniqueUsersOnly = false;
 	let timeRange = 'all'; // 'all', '24h', '7d', '30d'
-	let timeUnit = 'day'; // 'day', 'hour', 'week', 'min'
+	let timeUnit = 'day'; // 'day', 'hour', 'week'
 	let selectedFilterChoice = '';
 
 	// Derived Data
@@ -84,12 +84,7 @@
 				// Round down to hour
 				date.setMinutes(0, 0, 0);
 				key = date.toISOString();
-				label = `${date.getHours()}:00`;
-			} else if (timeUnit === 'min') {
-				// Round down to minute
-				date.setSeconds(0, 0);
-				key = date.toISOString();
-				label = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+				label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:00`;
 			} else if (timeUnit === 'week') {
 				// Round down to start of week (Monday)
 				const day = date.getDay();
@@ -112,9 +107,7 @@
 				const date = new Date(dateStr);
 				let label = '';
 				if (timeUnit === 'hour') {
-					label = `${date.getHours()}:00`;
-				} else if (timeUnit === 'min') {
-					label = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+					label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:00`;
 				} else if (timeUnit === 'week') {
 					label = `${date.getMonth() + 1}/${date.getDate()}`;
 				} else {
@@ -499,7 +492,6 @@
 					<option value="week">Week</option>
 					<option value="day">Day</option>
 					<option value="hour">Hour</option>
-					<option value="min">Minute</option>
 				</select>
 			</div>
 
@@ -578,10 +570,21 @@
 
 				<!-- Labels -->
 				{#if visitorGraphData.length > 0}
-					<text x="50" y="270" font-size="12" fill="#666">{visitorGraphData[0].label}</text>
-					<text x="950" y="270" font-size="12" fill="#666" text-anchor="end"
-						>{visitorGraphData[visitorGraphData.length - 1].label}</text
-					>
+					{#each visitorGraphData as d, i}
+						{#if i % Math.ceil(visitorGraphData.length / 6) === 0 || i === visitorGraphData.length - 1}
+							{@const slotWidth = 900 / visitorGraphData.length}
+							{@const x = 50 + i * slotWidth + slotWidth / 2}
+							<text
+								{x}
+								y="270"
+								font-size="12"
+								fill="#666"
+								text-anchor="middle"
+								transform="rotate(0, {x}, 270)">{d.label}</text
+							>
+						{/if}
+					{/each}
+
 					<!-- Left Axis Label (Count) -->
 					<text x="40" y="50" font-size="12" fill="#3b82f6" text-anchor="end">{maxCount}</text>
 					<text x="40" y="250" font-size="12" fill="#3b82f6" text-anchor="end">0</text>
