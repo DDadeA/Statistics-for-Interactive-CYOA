@@ -21,6 +21,7 @@
 	let timeRange = 'all'; // 'all', '24h', '7d', '30d'
 	let timeUnit = 'day'; // 'day', 'hour', 'week'
 	let selectedFilterChoice = '';
+	let isLogarithmicTime = false;
 
 	// Derived Data
 	let filteredLogData: LogEntry[] = [];
@@ -137,14 +138,7 @@
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
-		const timeBuckets = {
-			'< 10s': 0,
-			'10s-30s': 0,
-			'30s-1m': 0,
-			'1m-3m': 0,
-			'3m-10m': 0,
-			'> 10m': 0
-		};
+		const times: number[] = [];
 
 		data.forEach((entry) => {
 			try {
@@ -152,14 +146,7 @@
 				if (d.timeOnPage) {
 					totalTime += d.timeOnPage;
 					timeCount++;
-
-					const t = d.timeOnPage / 1000; // seconds
-					if (t < 10) timeBuckets['< 10s']++;
-					else if (t < 30) timeBuckets['10s-30s']++;
-					else if (t < 60) timeBuckets['30s-1m']++;
-					else if (t < 180) timeBuckets['1m-3m']++;
-					else if (t < 600) timeBuckets['3m-10m']++;
-					else timeBuckets['> 10m']++;
+					times.push(d.timeOnPage / 1000); // seconds
 				}
 				if (d.viewportSize) {
 					viewports[d.viewportSize] = (viewports[d.viewportSize] || 0) + 1;
@@ -174,11 +161,73 @@
 				.slice(0, 5)
 		};
 
-		timeDistribution = Object.entries(timeBuckets).map(([label, count]) => ({
-			label,
-			count,
-			percent: timeCount > 0 ? (count / timeCount) * 100 : 0
-		}));
+		if (times.length > 0) {
+			if (isLogarithmicTime) {
+				// Logarithmic Buckets
+				const buckets = {
+					'< 10s': 0,
+					'10s - 1m': 0,
+					'1m - 10m': 0,
+					'10m - 1h': 0,
+					'> 1h': 0
+				};
+				times.forEach((t) => {
+					if (t < 10) buckets['< 10s']++;
+					else if (t < 60) buckets['10s - 1m']++;
+					else if (t < 600) buckets['1m - 10m']++;
+					else if (t < 3600) buckets['10m - 1h']++;
+					else buckets['> 1h']++;
+				});
+				timeDistribution = Object.entries(buckets).map(([label, count]) => ({
+					label,
+					count,
+					percent: (count / times.length) * 100
+				}));
+			} else {
+				// Linear Adaptive Buckets (Smart Adaptive)
+				times.sort((a, b) => a - b);
+				const p95Index = Math.floor(times.length * 0.95);
+				const p95 = times[p95Index] || times[times.length - 1];
+
+				// Avoid creating too many small buckets if p95 is small
+				const maxVal = Math.max(p95, 60); // Minimum 60s range
+				const bucketCount = 10;
+				const bucketSize = maxVal / bucketCount;
+
+				const buckets: Record<string, number> = {};
+				const bucketLabels: string[] = [];
+
+				// Initialize buckets
+				for (let i = 0; i < bucketCount; i++) {
+					const start = Math.round(i * bucketSize);
+					const end = Math.round((i + 1) * bucketSize);
+					const label = `${formatTime(start)}-${formatTime(end)}`;
+					buckets[label] = 0;
+					bucketLabels.push(label);
+				}
+				const overflowLabel = `> ${formatTime(Math.round(maxVal))}`;
+				buckets[overflowLabel] = 0;
+				bucketLabels.push(overflowLabel);
+
+				times.forEach((t) => {
+					if (t >= maxVal) {
+						buckets[overflowLabel]++;
+					} else {
+						const index = Math.floor(t / bucketSize);
+						const safeIndex = Math.min(index, bucketCount - 1);
+						buckets[bucketLabels[safeIndex]]++;
+					}
+				});
+
+				timeDistribution = bucketLabels.map((label) => ({
+					label,
+					count: buckets[label],
+					percent: (buckets[label] / times.length) * 100
+				}));
+			}
+		} else {
+			timeDistribution = [];
+		}
 
 		// 6. Correlations
 		if (filteredLogData.length > 0) {
@@ -299,6 +348,14 @@
 		} else {
 			return response.json();
 		}
+	}
+
+	function formatTime(seconds: number): string {
+		if (seconds < 60) return `${seconds}s`;
+		const mins = Math.floor(seconds / 60);
+		if (mins < 60) return `${mins}m`;
+		const hours = Math.floor(mins / 60);
+		return `${hours}h`;
 	}
 
 	async function main(projectPath: string) {
@@ -702,7 +759,14 @@
 	</div>
 
 	<!-- Time Distribution -->
-	<h2 id="time-distribution">Time on Page Distribution</h2>
+	<h2 id="time-distribution">
+		Time on Page Distribution
+		<label class="toggle inline-toggle">
+			<input type="checkbox" bind:checked={isLogarithmicTime} />
+			<span class="slider small"></span>
+			<span class="label-text text-sm font-normal">Logarithmic Scale</span>
+		</label>
+	</h2>
 	<div class="chart-container">
 		{#if timeDistribution.length > 0}
 			{@const maxCount = Math.max(...timeDistribution.map((d) => d.count), 1)}
@@ -1059,6 +1123,25 @@
 	}
 	.toggle input:checked + .slider::before {
 		transform: translateX(20px);
+	}
+	.inline-toggle {
+		display: inline-flex;
+		margin-left: 1rem;
+		vertical-align: middle;
+	}
+	.slider.small {
+		width: 30px;
+		height: 16px;
+	}
+	.slider.small::before {
+		width: 12px;
+		height: 12px;
+	}
+	.toggle input:checked + .slider.small::before {
+		transform: translateX(14px);
+	}
+	.font-normal {
+		font-weight: normal;
 	}
 	.chart-container {
 		background-color: white;
