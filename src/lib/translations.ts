@@ -94,7 +94,7 @@ export const translations = {
 		users: '명',
 		notEnoughData: '그래프를 표시할 데이터가 부족합니다.',
 		generalStatistics: '일반 통계',
-		sumOfTime: '총 체류 시간',
+		sumOfTime: '당신이 빼앗은 총 시간',
 		totalVisitors: '총 방문자 (필터됨)',
 		topViewports: '상위 해상도',
 		other: '기타',
