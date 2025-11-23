@@ -19,12 +19,16 @@
 	// Options
 	let uniqueUsersOnly = false;
 	let timeRange = 'all'; // 'all', '24h', '7d', '30d'
+	let isAccumulated = true;
+	let selectedFilterChoice = '';
 
 	// Derived Data
 	let filteredLogData: LogEntry[] = [];
-	let visitorGraphData: { date: string; count: number }[] = [];
+	let visitorGraphData: { date: string; count: number; label: string }[] = [];
 	let rowStatistics: any[] = [];
 	let generalStats: any = {};
+	let topCorrelations: { idA: string; idB: string; count: number; percent: number }[] = [];
+	let allKnownChoices: string[] = [];
 
 	// Reactive Statements for Data Processing
 	$: {
@@ -55,23 +59,71 @@
 			data = Array.from(latestEntries.values());
 		}
 
+		// 3. Filter by Specific Choice
+		if (selectedFilterChoice) {
+			data = data.filter((entry) => {
+				try {
+					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+					return d.selectedChoices && d.selectedChoices.includes(selectedFilterChoice);
+				} catch (e) {
+					return false;
+				}
+			});
+		}
+
 		filteredLogData = data;
 
-		// 3. Visitor Graph Data (Accumulated)
-		// Sort by date ascending
-		const sortedByDate = [...data].sort(
-			(a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-		);
-		let cumulative = 0;
-		visitorGraphData = sortedByDate.map((entry, index) => {
-			cumulative = index + 1;
-			return {
-				date: entry.created_at,
-				count: cumulative
-			};
+		// 4. Visitor Graph Data
+		const groupedData: Record<string, number> = {};
+		const timeUnit = timeRange === '24h' ? 'hour' : 'day';
+
+		data.forEach((entry) => {
+			const date = new Date(entry.created_at);
+			let key = '';
+			let label = '';
+			if (timeUnit === 'hour') {
+				// Round down to hour
+				date.setMinutes(0, 0, 0);
+				key = date.toISOString();
+				label = `${date.getHours()}:00`;
+			} else {
+				// Round down to day
+				date.setHours(0, 0, 0, 0);
+				key = date.toISOString();
+				label = `${date.getMonth() + 1}/${date.getDate()}`;
+			}
+			groupedData[key] = (groupedData[key] || 0) + 1;
 		});
 
-		// 4. General Stats
+		let graphData = Object.entries(groupedData)
+			.map(([dateStr, count]) => {
+				const date = new Date(dateStr);
+				let label = '';
+				if (timeUnit === 'hour') {
+					label = `${date.getHours()}:00`;
+				} else {
+					label = `${date.getMonth() + 1}/${date.getDate()}`;
+				}
+				return {
+					date: dateStr,
+					count: count,
+					timestamp: date.getTime(),
+					label: label
+				};
+			})
+			.sort((a, b) => a.timestamp - b.timestamp);
+
+		if (isAccumulated) {
+			let sum = 0;
+			graphData = graphData.map((item) => {
+				sum += item.count;
+				return { ...item, count: sum };
+			});
+		}
+
+		visitorGraphData = graphData;
+
+		// 5. General Stats
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
@@ -95,9 +147,39 @@
 				.sort(([, a], [, b]) => b - a)
 				.slice(0, 5)
 		};
+
+		// 6. Correlations
+		if (filteredLogData.length > 0) {
+			const pairCounts: Record<string, number> = {};
+			let totalEntries = filteredLogData.length;
+
+			filteredLogData.forEach((entry) => {
+				try {
+					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+					const choices = d.selectedChoices || [];
+					const sortedChoices = [...choices].sort();
+					for (let i = 0; i < sortedChoices.length; i++) {
+						for (let j = i + 1; j < sortedChoices.length; j++) {
+							const key = `${sortedChoices[i]}|${sortedChoices[j]}`;
+							pairCounts[key] = (pairCounts[key] || 0) + 1;
+						}
+					}
+				} catch (e) {}
+			});
+
+			topCorrelations = Object.entries(pairCounts)
+				.map(([key, count]) => {
+					const [idA, idB] = key.split('|');
+					return { idA, idB, count, percent: (count / totalEntries) * 100 };
+				})
+				.sort((a, b) => b.count - a.count)
+				.slice(0, 10);
+		} else {
+			topCorrelations = [];
+		}
 	}
 
-	// 5. Row Statistics
+	// 7. Row Statistics
 	$: {
 		if (projectData && projectData.rows && filteredLogData.length > 0) {
 			rowStatistics = projectData.rows.map((row: any) => {
@@ -137,6 +219,18 @@
 			rowStatistics = [];
 		}
 	}
+
+	// 8. All Known Choices
+	$: allKnownChoices = (() => {
+		const choices = new Set<string>();
+		logData.forEach((entry) => {
+			try {
+				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+				if (d.selectedChoices) d.selectedChoices.forEach((c: string) => choices.add(c));
+			} catch (e) {}
+		});
+		return Array.from(choices).sort();
+	})();
 
 	let statistics: Record<string, number> = {};
 	let objectMap: Record<string, any> = {};
@@ -268,6 +362,18 @@
 		localStorage.setItem(`statistics_data_${secretKey}`, JSON.stringify(logData));
 	}
 
+	function downloadData() {
+		const dataStr =
+			'data:text/json;charset=utf-8,' +
+			encodeURIComponent(JSON.stringify(filteredLogData, null, 2));
+		const downloadAnchorNode = document.createElement('a');
+		downloadAnchorNode.setAttribute('href', dataStr);
+		downloadAnchorNode.setAttribute('download', 'statistics_data.json');
+		document.body.appendChild(downloadAnchorNode); // required for firefox
+		downloadAnchorNode.click();
+		downloadAnchorNode.remove();
+	}
+
 	onMount(() => {
 		// Extract secretKey from URL
 		const urlParts = window.location.pathname.split('/');
@@ -342,9 +448,9 @@
 			<li><a href="#controls">Controls</a></li>
 			<li><a href="#visitor-graph">Visitor Graph</a></li>
 			<li><a href="#general-stats">General Stats</a></li>
+			<li><a href="#correlations">Choice Correlations</a></li>
 			<li><a href="#row-analysis">Row Analysis</a></li>
 			<li><a href="#object-stats">Object Statistics</a></li>
-			<li><a href="#raw-data">Raw Data</a></li>
 		</ul>
 	</div>
 
@@ -365,6 +471,7 @@
 		<div class="button-group">
 			<button class="btn-primary" on:click={loadData}>UPDATE STATISTICS</button>
 			<button class="btn-success" on:click={updateProjectJson}>UPDATE PROJECT JSON</button>
+			<button class="btn-secondary" on:click={downloadData}>DOWNLOAD DATA</button>
 		</div>
 
 		<div class="filters">
@@ -383,6 +490,16 @@
 					<option value="24h">Last 24 Hours</option>
 				</select>
 			</div>
+
+			<div class="select-group">
+				<label for="filterChoice">Filter by Choice:</label>
+				<select id="filterChoice" bind:value={selectedFilterChoice}>
+					<option value="">All Choices</option>
+					{#each allKnownChoices as choice}
+						<option value={choice}>{choice}</option>
+					{/each}
+				</select>
+			</div>
 		</div>
 	</div>
 
@@ -393,9 +510,16 @@
 	{/if}
 
 	<!-- Visitor Graph -->
-	<h2 id="visitor-graph">Visitor Count (Accumulated)</h2>
+	<h2 id="visitor-graph">Visitor Count</h2>
+	<div class="chart-controls">
+		<label class="toggle">
+			<input type="checkbox" bind:checked={isAccumulated} />
+			<span class="slider"></span>
+			<span class="label-text">Accumulated</span>
+		</label>
+	</div>
 	<div class="chart-container">
-		{#if visitorGraphData.length > 1}
+		{#if visitorGraphData.length > 0}
 			<svg viewBox="0 0 1000 300" class="chart">
 				<!-- X and Y Axis -->
 				<line x1="50" y1="250" x2="950" y2="250" stroke="#ccc" />
@@ -408,24 +532,35 @@
 					stroke-width="2"
 					points={visitorGraphData
 						.map((d, i) => {
-							const x = 50 + (i / (visitorGraphData.length - 1)) * 900;
-							const maxCount = visitorGraphData[visitorGraphData.length - 1].count;
-							const y = 250 - (d.count / maxCount) * 200;
+							const x = 50 + (i / Math.max(1, visitorGraphData.length - 1)) * 900;
+							const maxCount = Math.max(...visitorGraphData.map((d) => d.count));
+							const y = 250 - (d.count / Math.max(1, maxCount)) * 200;
 							return `${x},${y}`;
 						})
 						.join(' ')}
 				/>
 
-				<!-- Labels (Simplified) -->
-				<text x="50" y="270" font-size="12" fill="#666"
-					>{new Date(visitorGraphData[0].date).toLocaleDateString()}</text
-				>
-				<text x="950" y="270" font-size="12" fill="#666" text-anchor="end"
-					>{new Date(visitorGraphData[visitorGraphData.length - 1].date).toLocaleDateString()}</text
-				>
-				<text x="40" y="50" font-size="12" fill="#666" text-anchor="end"
-					>{visitorGraphData[visitorGraphData.length - 1].count}</text
-				>
+				<!-- Data Points (Circles) -->
+				{#each visitorGraphData as d, i}
+					{@const x = 50 + (i / Math.max(1, visitorGraphData.length - 1)) * 900}
+					{@const maxCount = Math.max(...visitorGraphData.map((d) => d.count))}
+					{@const y = 250 - (d.count / Math.max(1, maxCount)) * 200}
+					<circle cx={x} cy={y} r="4" fill="#3b82f6" stroke="white" stroke-width="2">
+						<title>{d.label}: {d.count}</title>
+					</circle>
+				{/each}
+
+				<!-- Labels -->
+				{#if visitorGraphData.length > 0}
+					<text x="50" y="270" font-size="12" fill="#666">{visitorGraphData[0].label}</text>
+					<text x="950" y="270" font-size="12" fill="#666" text-anchor="end"
+						>{visitorGraphData[visitorGraphData.length - 1].label}</text
+					>
+					<text x="40" y="50" font-size="12" fill="#666" text-anchor="end"
+						>{Math.max(...visitorGraphData.map((d) => d.count))}</text
+					>
+					<text x="40" y="250" font-size="12" fill="#666" text-anchor="end">0</text>
+				{/if}
 			</svg>
 		{:else}
 			<p class="text-gray italic">Not enough data to display graph.</p>
@@ -453,6 +588,29 @@
 				{/if}
 			</ul>
 		</div>
+	</div>
+
+	<!-- Choice Correlations -->
+	<h2 id="correlations">Choice Correlations (Top 10)</h2>
+	<div class="correlation-grid">
+		{#each topCorrelations as corr}
+			{@const objA = objectMap[corr.idA]}
+			{@const objB = objectMap[corr.idB]}
+			<div class="correlation-card">
+				<div class="correlation-pair">
+					<span title={corr.idA}>{objA ? objA.title || corr.idA : corr.idA}</span>
+					<span class="separator">+</span>
+					<span title={corr.idB}>{objB ? objB.title || corr.idB : corr.idB}</span>
+				</div>
+				<div class="correlation-stat">
+					<span class="count">{corr.count}</span>
+					<span class="percent">({corr.percent.toFixed(1)}%)</span>
+				</div>
+			</div>
+		{/each}
+		{#if topCorrelations.length === 0}
+			<p class="text-gray italic">No significant correlations found.</p>
+		{/if}
 	</div>
 
 	<!-- Row Analysis -->
@@ -531,9 +689,6 @@
 		</div>
 		<pre class="mt-4">{JSON.stringify(statistics, null, 2)}</pre>
 	{/if}
-
-	<h2 id="raw-data" class="mt-8 mb-4">Raw Data</h2>
-	<pre class="code-block text-xs">{JSON.stringify(logData, null, 2)}</pre>
 </div>
 
 <style>
@@ -582,6 +737,12 @@
 	}
 	.btn-success:hover {
 		background-color: #15803d;
+	}
+	.btn-secondary {
+		background-color: #6b7280;
+	}
+	.btn-secondary:hover {
+		background-color: #4b5563;
 	}
 	.alert {
 		background-color: #fef9c3;
@@ -756,6 +917,46 @@
 		font-size: 2rem;
 		font-weight: bold;
 		color: #2563eb;
+	}
+	.correlation-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+		gap: 1rem;
+		margin-bottom: 2rem;
+	}
+	.correlation-card {
+		background-color: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+	}
+	.correlation-pair {
+		font-weight: bold;
+		margin-bottom: 0.5rem;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		align-items: center;
+	}
+	.correlation-pair .separator {
+		color: #9ca3af;
+	}
+	.correlation-stat {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+	}
+	.correlation-stat .count {
+		font-size: 1.25rem;
+		font-weight: bold;
+		color: #2563eb;
+	}
+	.correlation-stat .percent {
+		color: #6b7280;
+		font-size: 0.875rem;
 	}
 	.rows-container {
 		display: flex;
