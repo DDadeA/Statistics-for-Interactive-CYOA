@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { translations } from '$lib/translations';
 
 	interface LogEntry {
 		project_id: string;
@@ -22,6 +23,9 @@
 	let timeUnit = 'day'; // 'day', 'hour', 'week'
 	let selectedFilterChoice = '';
 	let isLogarithmicTime = false;
+	let currentLang = 'en';
+
+	$: t = translations[currentLang as keyof typeof translations];
 
 	// Derived Data
 	let filteredLogData: LogEntry[] = [];
@@ -35,6 +39,7 @@
 
 	// Reactive Statements for Data Processing
 	$: {
+		t; // Dependency for language switching
 		let data = [...logData];
 
 		// 1. Filter by Time Range
@@ -386,19 +391,19 @@
 	}
 
 	async function main(projectPath: string) {
-		setProgress('Finding project.json...');
+		setProgress(t.findingProject);
 
 		let finding_data = await fetch(finderUrl + encodeURIComponent(projectPath))
 			.then((response) => response.json())
 			.catch((error) => {
 				console.error('Error finding project.json:', error);
-				setProgress('프로젝트를 찾는 중 오류가 발생했어! 경로가 올바른지 확인해줘!');
+				setProgress(t.projectNotFound);
 				throw error;
 			});
 
 		// Check if the finding_data is valid
 		if (!finding_data || finding_data.type == 'Unknown') {
-			setProgress('프로젝트를 찾을 수 없어! 경로가 올바른지 확인해줘!');
+			setProgress(t.projectNotFound);
 			console.warn('Project not found or unknown type:', finding_data);
 			return;
 		}
@@ -409,13 +414,13 @@
 		if (finding_data.type === 'icc_link') {
 			// fetch it
 			const projectUrl = proxyUrl + finding_data.project;
-			setProgress(`Loading project from ${projectUrl}... (${finding_data.message})`);
+			setProgress(`${t.loadingProject} ${projectUrl}... (${finding_data.message})`);
 
 			project = await fetchWithProgress(projectUrl, (loaded, total) => {
 				setProgress(`Loading project.json... ${Math.round(loaded / 1024)}KB`);
 			}).catch((error) => {
 				console.error('Error fetching project.json:', error);
-				setProgress('프로젝트를 불러오는 중 오류가 발생했어! 예측하지 못한 오류야! (오류코드 : 1)');
+				setProgress(t.errorFetching);
 				throw error;
 			});
 		} else if (finding_data.type === 'icc') {
@@ -426,13 +431,13 @@
 
 		projectData = project;
 		localStorage.setItem(`project_data_${secretKey}`, JSON.stringify(projectData));
-		setProgress('Project data loaded successfully!');
+		setProgress(t.projectLoaded);
 		setTimeout(() => setProgress(''), 3000);
 	}
 
 	async function updateProjectJson() {
 		if (logData.length === 0) {
-			alert('No statistics data available to find project URL. Please UPDATE STATISTICS first.');
+			alert(t.noStatsData);
 			return;
 		}
 
@@ -449,12 +454,12 @@
 			currentURL = parsedData.currentURL;
 		} catch (e) {
 			console.error('Error parsing log data', e);
-			alert('Error parsing log data');
+			alert(t.errorParsing);
 			return;
 		}
 
 		if (!currentURL) {
-			alert('Could not find currentURL in the latest log entry.');
+			alert(t.noCurrentUrl);
 			return;
 		}
 
@@ -597,59 +602,66 @@
 </script>
 
 <div class="container">
+	<div class="language-switcher">
+		<span class="icon">🌐</span>
+		<button class:active={currentLang === 'en'} on:click={() => (currentLang = 'en')}>EN</button>
+		<span class="separator">|</span>
+		<button class:active={currentLang === 'ko'} on:click={() => (currentLang = 'ko')}>KO</button>
+	</div>
+
 	<!-- Table of Contents -->
 	<div class="toc">
-		<h3>Table of Contents</h3>
+		<h3>{t.toc}</h3>
 		<ul>
-			<li><a href="#controls">Controls</a></li>
-			<li><a href="#visitor-graph">Visitor Graph</a></li>
-			<li><a href="#general-stats">General Stats</a></li>
-			<li><a href="#time-distribution">Time Distribution</a></li>
-			<li><a href="#correlations">Choice Correlations</a></li>
-			<li><a href="#exit-analysis">Exit Analysis</a></li>
-			<li><a href="#row-analysis">Row Analysis</a></li>
-			<li><a href="#object-stats">Object Statistics</a></li>
+			<li><a href="#controls">{t.controls}</a></li>
+			<li><a href="#visitor-graph">{t.visitorGraph}</a></li>
+			<li><a href="#general-stats">{t.generalStats}</a></li>
+			<li><a href="#time-distribution">{t.timeDistribution}</a></li>
+			<li><a href="#correlations">{t.correlations}</a></li>
+			<li><a href="#exit-analysis">{t.exitAnalysis}</a></li>
+			<li><a href="#row-analysis">{t.rowAnalysis}</a></li>
+			<li><a href="#object-stats">{t.objectStats}</a></li>
 		</ul>
 	</div>
 
-	<h1 id="controls">Statistics Controls</h1>
+	<h1 id="controls">{t.statisticsControls}</h1>
 	<div class="controls-section">
 		<div class="button-group">
-			<button class="btn-primary" on:click={loadData}>UPDATE STATISTICS</button>
-			<button class="btn-success" on:click={updateProjectJson}>UPDATE PROJECT JSON</button>
-			<button class="btn-secondary" on:click={downloadData}>DOWNLOAD DATA</button>
+			<button class="btn-primary" on:click={loadData}>{t.updateStatistics}</button>
+			<button class="btn-success" on:click={updateProjectJson}>{t.updateProjectJson}</button>
+			<button class="btn-secondary" on:click={downloadData}>{t.downloadData}</button>
 		</div>
 
 		<div class="filters">
 			<label class="toggle">
 				<input type="checkbox" bind:checked={uniqueUsersOnly} />
 				<span class="slider"></span>
-				<span class="label-text">Unique Users Only (Exclude Duplicates by UID)</span>
+				<span class="label-text">{t.uniqueUsers}</span>
 			</label>
 
 			<div class="select-group">
-				<label for="timeRange">Time Range:</label>
+				<label for="timeRange">{t.timeRange}</label>
 				<select id="timeRange" bind:value={timeRange}>
-					<option value="all">All Time</option>
-					<option value="30d">Last 30 Days</option>
-					<option value="7d">Last 7 Days</option>
-					<option value="24h">Last 24 Hours</option>
+					<option value="all">{t.allTime}</option>
+					<option value="30d">{t.last30Days}</option>
+					<option value="7d">{t.last7Days}</option>
+					<option value="24h">{t.last24Hours}</option>
 				</select>
 			</div>
 
 			<div class="select-group">
-				<label for="timeUnit">Group By:</label>
+				<label for="timeUnit">{t.groupBy}</label>
 				<select id="timeUnit" bind:value={timeUnit}>
-					<option value="week">Week</option>
-					<option value="day">Day</option>
-					<option value="hour">Hour</option>
+					<option value="week">{t.week}</option>
+					<option value="day">{t.day}</option>
+					<option value="hour">{t.hour}</option>
 				</select>
 			</div>
 
 			<div class="select-group">
-				<label for="filterChoice">Filter by Choice:</label>
+				<label for="filterChoice">{t.filterByChoice}</label>
 				<select id="filterChoice" bind:value={selectedFilterChoice}>
-					<option value="">All Choices</option>
+					<option value="">{t.allChoices}</option>
 					{#each allKnownChoices as choice}
 						<option value={choice}>{choice}</option>
 					{/each}
@@ -665,7 +677,7 @@
 	{/if}
 
 	<!-- Visitor Graph -->
-	<h2 id="visitor-graph">Visitor Count</h2>
+	<h2 id="visitor-graph">{t.visitorCount}</h2>
 	<div class="chart-container">
 		{#if visitorGraphData.length > 0}
 			{@const maxCount = Math.max(...visitorGraphData.map((d) => d.count), 1)}
@@ -715,7 +727,7 @@
 					{@const x = 50 + i * slotWidth + slotWidth / 2}
 					{@const y = 250 - (d.accumulated / maxAccumulated) * 200}
 					<circle cx={x} cy={y} r="3" fill="#ef4444" stroke="white" stroke-width="1">
-						<title>Accumulated: {d.accumulated}</title>
+						<title>{t.accumulatedTooltip}: {d.accumulated}</title>
 					</circle>
 				{/each}
 
@@ -750,31 +762,31 @@
 			<div class="chart-legend">
 				<div class="legend-item">
 					<span class="color-box bar"></span>
-					<span>Period Count (Left Axis)</span>
+					<span>{t.periodCount}</span>
 				</div>
 				<div class="legend-item">
 					<span class="color-box line"></span>
-					<span>Accumulated (Right Axis)</span>
+					<span>{t.accumulated}</span>
 				</div>
 			</div>
 		{:else}
-			<p class="text-gray italic">Not enough data to display graph.</p>
+			<p class="text-gray italic">{t.notEnoughData}</p>
 		{/if}
 	</div>
 
 	<!-- General Stats -->
-	<h2 id="general-stats">General Statistics</h2>
+	<h2 id="general-stats">{t.generalStatistics}</h2>
 	<div class="stats-grid">
 		<div class="stat-card">
-			<h3>The Sum of time you get from users.</h3>
+			<h3>{t.sumOfTime}</h3>
 			<p class="stat-value">{formatTime(generalStats.totalTimeOnPage || 0)}</p>
 		</div>
 		<div class="stat-card">
-			<h3>Total Visitors (Filtered)</h3>
+			<h3>{t.totalVisitors}</h3>
 			<p class="stat-value">{filteredLogData.length}</p>
 		</div>
 		<div class="stat-card wide">
-			<h3>Top Viewports</h3>
+			<h3>{t.topViewports}</h3>
 			{#if generalStats.topViewports && generalStats.totalViewportCount > 0}
 				{@const colors = ['#3b82f6', '#ef4444', '#22c55e', '#eab308', '#a855f7', '#9ca3af']}
 				{@const top5Total = generalStats.topViewports.reduce((sum, [, count]) => sum + count, 0)}
@@ -785,7 +797,7 @@
 						count,
 						color: colors[i % colors.length]
 					})),
-					...(otherCount > 0 ? [{ label: 'Other', count: otherCount, color: colors[5] }] : [])
+					...(otherCount > 0 ? [{ label: t.other, count: otherCount, color: colors[5] }] : [])
 				]}
 
 				<div class="pie-chart-container">
@@ -822,23 +834,23 @@
 					</div>
 				</div>
 			{:else}
-				<p class="text-gray italic">No viewport data available.</p>
+				<p class="text-gray italic">{t.noViewportData}</p>
 			{/if}
 		</div>
 	</div>
 
 	<!-- Time Distribution -->
 	<h2 id="time-distribution">
-		Time on Page Distribution
+		{t.timeOnPageDistribution}
 		<span class="text-sm font-normal text-gray ml-2">
-			(Avg: {formatTime(generalStats.avgTimeOnPage || 0)}, Median: {formatTime(
+			({t.avg}: {formatTime(generalStats.avgTimeOnPage || 0)}, {t.median}: {formatTime(
 				generalStats.medianTimeOnPage || 0
 			)})
 		</span>
 		<label class="toggle inline-toggle">
 			<input type="checkbox" bind:checked={isLogarithmicTime} />
 			<span class="slider small"></span>
-			<span class="label-text text-sm font-normal">Logarithmic Scale</span>
+			<span class="label-text text-sm font-normal">{t.logarithmicScale}</span>
 		</label>
 	</h2>
 	<div class="chart-container">
@@ -852,7 +864,7 @@
 							<div
 								class="dist-bar"
 								style="width: {(d.count / maxCount) * 100}%"
-								title="{d.count} users ({d.percent.toFixed(1)}%)"
+								title="{d.count} {t.users} ({d.percent.toFixed(1)}%)"
 							></div>
 							<span class="dist-value">{d.count} ({d.percent.toFixed(1)}%)</span>
 						</div>
@@ -860,12 +872,12 @@
 				{/each}
 			</div>
 		{:else}
-			<p class="text-gray italic">No time data available.</p>
+			<p class="text-gray italic">{t.noTimeData}</p>
 		{/if}
 	</div>
 
 	<!-- Choice Correlations -->
-	<h2 id="correlations">Choice Correlations (Top 10)</h2>
+	<h2 id="correlations">{t.choiceCorrelations}</h2>
 	<div class="correlation-grid">
 		{#each topCorrelations as corr}
 			{@const objA = objectMap[corr.idA]}
@@ -883,19 +895,19 @@
 			</div>
 		{/each}
 		{#if topCorrelations.length === 0}
-			<p class="text-gray italic">No significant correlations found.</p>
+			<p class="text-gray italic">{t.noCorrelations}</p>
 		{/if}
 	</div>
 
 	<!-- Exit Analysis -->
-	<h2 id="exit-analysis">Exit Point Analysis (Last Selected Row)</h2>
+	<h2 id="exit-analysis">{t.exitPointAnalysis}</h2>
 	<div class="rows-container">
 		{#if exitRowStats.length > 0}
 			{#each exitRowStats as row}
 				<div class="row-card">
 					<div class="row-item-header">
 						<span class="row-item-title font-bold">{row.title}</span>
-						<span class="row-item-percent">{row.count} users ({row.percent.toFixed(1)}%)</span>
+						<span class="row-item-percent">{row.count} {t.users} ({row.percent.toFixed(1)}%)</span>
 					</div>
 					<div class="progress-bar-bg">
 						<div class="progress-bar-fill" style="width: {row.percent}%"></div>
@@ -903,13 +915,13 @@
 				</div>
 			{/each}
 		{:else}
-			<p class="text-gray italic">No exit data available.</p>
+			<p class="text-gray italic">{t.noExitData}</p>
 		{/if}
 	</div>
 
 	<!-- Row Analysis -->
 	{#if projectData}
-		<h2 id="row-analysis">Row Analysis</h2>
+		<h2 id="row-analysis">{t.rowAnalysis}</h2>
 		<div class="rows-container">
 			{#each rowStatistics as row}
 				{@const colors = [
@@ -927,7 +939,7 @@
 				<div class="row-card">
 					<h3>
 						{row.title || row.id}
-						<span class="text-sm text-gray">({row.totalSelections} selections)</span>
+						<span class="text-sm text-gray">({row.totalSelections} {t.selections})</span>
 					</h3>
 
 					<!-- Stacked Bar Chart -->
@@ -964,7 +976,7 @@
 			{/each}
 		</div>
 
-		<h2 id="object-stats">Object Statistics</h2>
+		<h2 id="object-stats">{t.objectStats}</h2>
 		<div class="grid">
 			{#each Object.entries(statistics).sort(([, a], [, b]) => b - a) as [id, count]}
 				{@const obj = objectMap[id]}
@@ -984,10 +996,10 @@
 						{/if}
 					{:else}
 						<h3>{id}</h3>
-						<p class="text-sm text-gray italic">Object data not found</p>
+						<p class="text-sm text-gray italic">{t.objectDataNotFound}</p>
 					{/if}
 					<div class="card-footer">
-						<span class="text-gray text-sm">Count:</span>
+						<span class="text-gray text-sm">{t.count}</span>
 						<span class="text-xl font-bold text-blue">{count}</span>
 					</div>
 					<div class="progress-bar-bg">
@@ -1004,9 +1016,9 @@
 		</div>
 	{:else}
 		<div class="empty-state">
-			<p class="text-gray mb-2">Project data not loaded.</p>
+			<p class="text-gray mb-2">{t.projectDataNotLoaded}</p>
 			<p class="text-sm text-gray">
-				Click "UPDATE PROJECT JSON" to load object details and images.
+				{t.clickUpdateProject}
 			</p>
 		</div>
 		<pre class="mt-4">{JSON.stringify(statistics, null, 2)}</pre>
@@ -1019,6 +1031,42 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 20px;
+		position: relative;
+	}
+	.language-switcher {
+		position: absolute;
+		top: 20px;
+		right: 20px;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background-color: #f3f4f6;
+		padding: 0.5rem 1rem;
+		border-radius: 9999px;
+		font-size: 0.875rem;
+		font-weight: bold;
+		z-index: 10;
+	}
+	.language-switcher .icon {
+		font-size: 1rem;
+		margin-right: 0.25rem;
+	}
+	.language-switcher button {
+		background: transparent;
+		color: #9ca3af;
+		padding: 0;
+		border-radius: 0;
+		font-weight: bold;
+	}
+	.language-switcher button:hover {
+		background: transparent;
+		color: #6b7280;
+	}
+	.language-switcher button.active {
+		color: #3b82f6;
+	}
+	.language-switcher .separator {
+		color: #d1d5db;
 	}
 	h1,
 	h2,
@@ -1326,22 +1374,13 @@
 		border-radius: 0.5rem;
 		padding: 1rem;
 	}
-	.row-item {
-		margin-bottom: 0.5rem;
-	}
 	.row-item-header {
 		display: flex;
 		justify-content: space-between;
 		font-size: 0.875rem;
 		margin-bottom: 0.25rem;
 	}
-	.progress-bar-bg.small {
-		height: 0.4rem;
-	}
-	.progress-bar-bg.small .progress-bar-fill {
-		height: 0.4rem;
-	}
-	html {
+	:global(html) {
 		scroll-behavior: smooth;
 	}
 	.chart-legend {
