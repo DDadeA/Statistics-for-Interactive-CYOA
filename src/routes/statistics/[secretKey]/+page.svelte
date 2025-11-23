@@ -150,7 +150,13 @@
 					times.push(d.timeOnPage / 1000); // seconds
 				}
 				if (d.viewportSize) {
-					viewports[d.viewportSize] = (viewports[d.viewportSize] || 0) + 1;
+					// Group by width to avoid fragmentation due to browser height differences
+					let key = d.viewportSize;
+					const parts = d.viewportSize.split('x');
+					if (parts.length === 2) {
+						key = `${parts[0]}px (Width)`;
+					}
+					viewports[key] = (viewports[key] || 0) + 1;
 					totalViewportCount++;
 				}
 			} catch (e) {}
@@ -302,13 +308,17 @@
 				return {
 					...row,
 					totalSelections: rowTotalSelections,
-					objectStats: rowObjects.map((obj: any) => ({
-						...obj,
-						count: objectCounts[obj.id] || 0,
-						percentInRow:
-							rowTotalSelections > 0 ? ((objectCounts[obj.id] || 0) / rowTotalSelections) * 100 : 0,
-						percentTotal: ((objectCounts[obj.id] || 0) / filteredLogData.length) * 100
-					}))
+					objectStats: rowObjects
+						.map((obj: any) => ({
+							...obj,
+							count: objectCounts[obj.id] || 0,
+							percentInRow:
+								rowTotalSelections > 0
+									? ((objectCounts[obj.id] || 0) / rowTotalSelections) * 100
+									: 0,
+							percentTotal: ((objectCounts[obj.id] || 0) / filteredLogData.length) * 100
+						}))
+						.sort((a: any, b: any) => b.count - a.count)
 				};
 			});
 		} else {
