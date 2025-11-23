@@ -347,6 +347,25 @@
 	let objectMap: Record<string, any> = {};
 	let objectToRowMap: Record<string, { id: string; title: string }> = {};
 
+	function addToSavedProjects(secretKey: string, projectId: string) {
+		const storedProjects = localStorage.getItem('projects');
+		let projects: { projectId: string; secretKey: string; settings: any }[] = [];
+		if (storedProjects) {
+			try {
+				projects = JSON.parse(storedProjects);
+			} catch (e) {
+				console.error('Error parsing projects from localStorage', e);
+			}
+		}
+
+		// Check if already exists
+		const exists = projects.some((p) => p.secretKey === secretKey);
+		if (!exists) {
+			projects.push({ projectId, secretKey, settings: undefined });
+			localStorage.setItem('projects', JSON.stringify(projects));
+		}
+	}
+
 	function setProgress(msg: string) {
 		progressMessage = msg;
 	}
@@ -482,6 +501,10 @@
 		console.log(result);
 		logData = result.results || [];
 		localStorage.setItem(`statistics_data_${secretKey}`, JSON.stringify(logData));
+
+		if (logData.length > 0) {
+			addToSavedProjects(secretKey, logData[0].project_id);
+		}
 	}
 
 	function downloadData() {
@@ -511,6 +534,9 @@
 		if (storedData) {
 			try {
 				logData = JSON.parse(storedData);
+				if (logData.length > 0) {
+					addToSavedProjects(secretKey, logData[0].project_id);
+				}
 			} catch (e) {
 				console.error('Failed to parse stored data', e);
 			}

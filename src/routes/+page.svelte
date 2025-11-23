@@ -22,21 +22,27 @@
 	};
 
 	const handleCreateNew = async () => {
-		// Fetch to registration API to create new project
-		let response = await fetch('/api/registration', {
-			method: 'GET'
-		});
-		let data = await response.json();
-		console.log('New Project Data:', data);
-		if (data.projectId && data.secretKey) {
-			projects = [
-				...projects,
-				{ projectId: data.projectId, secretKey: data.secretKey, settings: undefined }
-			];
-		} else {
-			alert('Failed to create new project. Please try again.');
+		// Ask email for registration
+		const email = prompt('Enter your email for project registration:');
+
+		// Validate email format - WE HAVE TO CHECK THIS ON THE SERVER SIDE AS WELL
+		if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+			alert('Please enter a valid email address.');
 			return;
 		}
+
+		// Fetch to registration API to create new project
+		let response = await fetch(`/api/registration?email=${encodeURIComponent(email)}`, {
+			method: 'GET'
+		});
+
+		// Check status
+		if (!response.ok) {
+			alert('Failed to create a new project. Reason: ' + (await response.text()));
+			return;
+		}
+
+		alert('New project created. Please check your email for configuration details.');
 		updateLocalStorage();
 	};
 
@@ -45,12 +51,19 @@
 		const existingSecretKey = prompt('Enter Secret Key:');
 
 		console.log('Existing Secret Key:', existingSecretKey);
+		// Update projects array accordingly
+		if (existingSecretKey) {
+			projects = [
+				...projects,
+				{ projectId: 'Unknown', secretKey: existingSecretKey, settings: undefined }
+			];
+		}
 
 		updateLocalStorage();
 	};
 </script>
 
-<p>Here is the registration page.</p>
+<h1 class="text-2xl font-bold mb-4">Manage Projects</h1>
 <div>
 	<button onclick={handleCreateNew}>Create New Project</button>
 	<button onclick={handleAddExisting}>Add Existing Project</button>

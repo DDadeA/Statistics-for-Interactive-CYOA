@@ -12,6 +12,7 @@ declare global {
 				COUNTER: DurableObjectNamespace;
 				DB: D1Database;
 				pepper: string;
+				RESEND_API: string;
 			};
 			context: {
 				waitUntil(promise: Promise<any>): void;
