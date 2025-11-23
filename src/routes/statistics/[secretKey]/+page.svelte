@@ -140,6 +140,7 @@
 		const viewports: Record<string, number> = {};
 		const times: number[] = [];
 
+		let totalViewportCount = 0;
 		data.forEach((entry) => {
 			try {
 				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
@@ -150,15 +151,18 @@
 				}
 				if (d.viewportSize) {
 					viewports[d.viewportSize] = (viewports[d.viewportSize] || 0) + 1;
+					totalViewportCount++;
 				}
 			} catch (e) {}
 		});
 
 		generalStats = {
 			avgTimeOnPage: timeCount > 0 ? Math.round(totalTime / timeCount / 1000) : 0, // seconds
+			totalTimeOnPage: Math.round(totalTime / 1000), // seconds
 			topViewports: Object.entries(viewports)
 				.sort(([, a], [, b]) => b - a)
-				.slice(0, 5)
+				.slice(0, 5),
+			totalViewportCount
 		};
 
 		if (times.length > 0) {
@@ -366,7 +370,9 @@
 		const mins = Math.floor(seconds / 60);
 		if (mins < 60) return `${mins}m`;
 		const hours = Math.floor(mins / 60);
-		return `${hours}h`;
+		if (hours < 24) return `${hours}h`;
+		const days = Math.floor(hours / 24);
+		return `${days}d ${hours % 24}h`;
 	}
 
 	async function main(projectPath: string) {
@@ -750,8 +756,8 @@
 	<h2 id="general-stats">General Statistics</h2>
 	<div class="stats-grid">
 		<div class="stat-card">
-			<h3>Avg. Time on Page</h3>
-			<p class="stat-value">{generalStats.avgTimeOnPage || 0}s</p>
+			<h3>The Sum of time you get from users.</h3>
+			<p class="stat-value">{formatTime(generalStats.totalTimeOnPage || 0)}</p>
 		</div>
 		<div class="stat-card">
 			<h3>Total Visitors (Filtered)</h3>
@@ -759,13 +765,55 @@
 		</div>
 		<div class="stat-card wide">
 			<h3>Top Viewports</h3>
-			<ul>
-				{#if generalStats.topViewports}
-					{#each generalStats.topViewports as [size, count]}
-						<li>{size}: {count}</li>
-					{/each}
-				{/if}
-			</ul>
+			{#if generalStats.topViewports && generalStats.totalViewportCount > 0}
+				{@const colors = ['#3b82f6', '#ef4444', '#22c55e', '#eab308', '#a855f7', '#9ca3af']}
+				{@const top5Total = generalStats.topViewports.reduce((sum, [, count]) => sum + count, 0)}
+				{@const otherCount = generalStats.totalViewportCount - top5Total}
+				{@const pieData = [
+					...generalStats.topViewports.map(([label, count], i) => ({
+						label,
+						count,
+						color: colors[i % colors.length]
+					})),
+					...(otherCount > 0 ? [{ label: 'Other', count: otherCount, color: colors[5] }] : [])
+				]}
+
+				<div class="pie-chart-container">
+					<svg viewBox="-1 -1 2 2" style="transform: rotate(-90deg)" class="pie-chart">
+						{#each pieData as slice, i}
+							{@const total = generalStats.totalViewportCount}
+							{@const startAngle = pieData
+								.slice(0, i)
+								.reduce((sum, d) => sum + (d.count / total) * 2 * Math.PI, 0)}
+							{@const sliceAngle = (slice.count / total) * 2 * Math.PI}
+							{@const x1 = Math.cos(startAngle)}
+							{@const y1 = Math.sin(startAngle)}
+							{@const x2 = Math.cos(startAngle + sliceAngle)}
+							{@const y2 = Math.sin(startAngle + sliceAngle)}
+							{@const largeArcFlag = sliceAngle > Math.PI ? 1 : 0}
+
+							<path d="M 0 0 L {x1} {y1} A 1 1 0 {largeArcFlag} 1 {x2} {y2} Z" fill={slice.color}>
+								<title
+									>{slice.label}: {slice.count} ({((slice.count / total) * 100).toFixed(1)}%)</title
+								>
+							</path>
+						{/each}
+					</svg>
+					<div class="pie-legend">
+						{#each pieData as slice}
+							<div class="legend-item">
+								<span class="color-box" style="background-color: {slice.color}"></span>
+								<span class="legend-label" title={slice.label}>{slice.label}</span>
+								<span class="legend-value"
+									>{((slice.count / generalStats.totalViewportCount) * 100).toFixed(1)}%</span
+								>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{:else}
+				<p class="text-gray italic">No viewport data available.</p>
+			{/if}
 		</div>
 	</div>
 
@@ -854,24 +902,52 @@
 		<h2 id="row-analysis">Row Analysis</h2>
 		<div class="rows-container">
 			{#each rowStatistics as row}
+				{@const colors = [
+					'#3b82f6',
+					'#ef4444',
+					'#22c55e',
+					'#eab308',
+					'#a855f7',
+					'#ec4899',
+					'#6366f1',
+					'#14b8a6',
+					'#f97316',
+					'#8b5cf6'
+				]}
 				<div class="row-card">
 					<h3>
 						{row.title || row.id}
 						<span class="text-sm text-gray">({row.totalSelections} selections)</span>
 					</h3>
-					<div class="row-items">
-						{#each row.objectStats as obj}
-							<div class="row-item">
-								<div class="row-item-header">
-									<span class="row-item-title">{obj.title || obj.id}</span>
-									<span class="row-item-percent"
-										>{obj.percentInRow.toFixed(1)}% (Row) / {obj.percentTotal.toFixed(1)}% (Total)</span
-									>
+
+					<!-- Stacked Bar Chart -->
+					<div class="stacked-bar-container">
+						<div class="stacked-bar">
+							{#each row.objectStats as obj, i}
+								{#if obj.percentInRow > 0}
+									<div
+										class="stacked-segment"
+										style="width: {obj.percentInRow}%; background-color: {colors[
+											i % colors.length
+										]}"
+										title="{obj.title || obj.id}: {obj.count} ({obj.percentInRow.toFixed(1)}%)"
+									></div>
+								{/if}
+							{/each}
+						</div>
+					</div>
+
+					<!-- Legend -->
+					<div class="row-legend">
+						{#each row.objectStats as obj, i}
+							{#if obj.percentInRow > 0}
+								<div class="legend-item">
+									<span class="color-box" style="background-color: {colors[i % colors.length]}"
+									></span>
+									<span class="legend-label">{obj.title || obj.id}</span>
+									<span class="legend-value">{obj.percentInRow.toFixed(1)}%</span>
 								</div>
-								<div class="progress-bar-bg small">
-									<div class="progress-bar-fill" style="width: {obj.percentInRow}%"></div>
-								</div>
-							</div>
+							{/if}
 						{/each}
 					</div>
 				</div>
@@ -1320,5 +1396,51 @@
 	}
 	.ml-2 {
 		margin-left: 0.5rem;
+	}
+	.pie-chart-container {
+		display: flex;
+		align-items: center;
+		gap: 2rem;
+		justify-content: center;
+	}
+	.pie-chart {
+		width: 150px;
+		height: 150px;
+		flex-shrink: 0;
+	}
+	.pie-legend {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.legend-label {
+		font-weight: bold;
+		margin-right: 0.5rem;
+	}
+	.legend-value {
+		color: #6b7280;
+	}
+	.stacked-bar-container {
+		margin-bottom: 1rem;
+	}
+	.stacked-bar {
+		display: flex;
+		height: 1.5rem;
+		width: 100%;
+		background-color: #e5e7eb;
+		border-radius: 0.25rem;
+		overflow: hidden;
+	}
+	.stacked-segment {
+		height: 100%;
+		transition: width 0.3s ease;
+	}
+	.stacked-segment:hover {
+		opacity: 0.8;
+	}
+	.row-legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
 	}
 </style>
