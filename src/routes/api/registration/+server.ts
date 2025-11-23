@@ -1,5 +1,6 @@
 import { query, getHash } from '$lib/utils';
 import { isDisposableEmail } from 'disposable-email-domains-js';
+import { Resend } from 'resend';
 
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
 	// Get email from query parameters
@@ -38,18 +39,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 	);
 
 	// Send email with project details
-	const origin = url.origin;
-	const emailResponse = await fetch('https://api.resend.com/emails', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${platform.env.RESEND_API}`
-		},
-		body: JSON.stringify({
-			from: 'onboarding@resend.dev',
-			to: email,
-			subject: 'Statistics for Interactive CYOA - Project Registration / 프로젝트 등록 완료',
-			html: `
+	const html = `
 			<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
 				<h2>Registration Successful / 등록 성공</h2>
 				
@@ -95,12 +85,20 @@ export async function GET({ request, platform }: { request: Request; platform: A
   &lt;/script&gt;
 &lt;/body&gt;</pre>
 			</div>
-			`
-		})
+			`;
+
+	const resend = new Resend(platform.env.RESEND_API);
+	const { data, error } = await resend.emails.send({
+		from: platform.env.emailSender || 'onboarding@resend.dev',
+		to: email,
+		subject: 'Statistics for Interactive CYOA - Project Registration / 프로젝트 등록 완료',
+		html: html
 	});
 
-	if (!emailResponse.ok) {
-		return new Response('Internal Server Error: Failed to send email', { status: 500 });
+	if (error) {
+		return new Response('Internal Server Error: Failed to send email' + error.message, {
+			status: 500
+		});
 	}
 
 	return new Response();

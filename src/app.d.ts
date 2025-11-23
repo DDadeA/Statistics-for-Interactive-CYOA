@@ -13,6 +13,7 @@ declare global {
 				DB: D1Database;
 				pepper: string;
 				RESEND_API: string;
+				emailSender: string;
 			};
 			context: {
 				waitUntil(promise: Promise<any>): void;
