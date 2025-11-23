@@ -27,6 +27,8 @@
 	let visitorGraphData: { date: string; count: number; accumulated: number; label: string }[] = [];
 	let rowStatistics: any[] = [];
 	let generalStats: any = {};
+	let timeDistribution: { label: string; count: number; percent: number }[] = [];
+	let exitRowStats: { id: string; title: string; count: number; percent: number }[] = [];
 	let topCorrelations: { idA: string; idB: string; count: number; percent: number }[] = [];
 	let allKnownChoices: string[] = [];
 
@@ -131,10 +133,18 @@
 
 		visitorGraphData = graphData;
 
-		// 5. General Stats
+		// 5. General Stats & Time Distribution
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
+		const timeBuckets = {
+			'< 10s': 0,
+			'10s-30s': 0,
+			'30s-1m': 0,
+			'1m-3m': 0,
+			'3m-10m': 0,
+			'> 10m': 0
+		};
 
 		data.forEach((entry) => {
 			try {
@@ -142,6 +152,14 @@
 				if (d.timeOnPage) {
 					totalTime += d.timeOnPage;
 					timeCount++;
+
+					const t = d.timeOnPage / 1000; // seconds
+					if (t < 10) timeBuckets['< 10s']++;
+					else if (t < 30) timeBuckets['10s-30s']++;
+					else if (t < 60) timeBuckets['30s-1m']++;
+					else if (t < 180) timeBuckets['1m-3m']++;
+					else if (t < 600) timeBuckets['3m-10m']++;
+					else timeBuckets['> 10m']++;
 				}
 				if (d.viewportSize) {
 					viewports[d.viewportSize] = (viewports[d.viewportSize] || 0) + 1;
@@ -155,6 +173,12 @@
 				.sort(([, a], [, b]) => b - a)
 				.slice(0, 5)
 		};
+
+		timeDistribution = Object.entries(timeBuckets).map(([label, count]) => ({
+			label,
+			count,
+			percent: timeCount > 0 ? (count / timeCount) * 100 : 0
+		}));
 
 		// 6. Correlations
 		if (filteredLogData.length > 0) {
@@ -242,6 +266,7 @@
 
 	let statistics: Record<string, number> = {};
 	let objectMap: Record<string, any> = {};
+	let objectToRowMap: Record<string, { id: string; title: string }> = {};
 
 	function setProgress(msg: string) {
 		progressMessage = msg;
@@ -436,15 +461,55 @@
 	$: objectMap = (() => {
 		if (!projectData || !projectData.rows) return {};
 		const map: Record<string, any> = {};
+		const rowMap: Record<string, { id: string; title: string }> = {};
+
 		projectData.rows.forEach((row: any) => {
 			if (row.objects) {
 				row.objects.forEach((obj: any) => {
 					map[obj.id] = obj;
+					rowMap[obj.id] = { id: row.id, title: row.title || row.id };
 				});
 			}
 		});
+		objectToRowMap = rowMap;
 		return map;
 	})();
+
+	// Exit Row Statistics
+	$: {
+		if (filteredLogData.length > 0 && Object.keys(objectToRowMap).length > 0) {
+			const exitCounts: Record<string, number> = {};
+			let validExits = 0;
+
+			filteredLogData.forEach((entry) => {
+				try {
+					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+					if (d.selectedChoices && d.selectedChoices.length > 0) {
+						const lastChoice = d.selectedChoices[d.selectedChoices.length - 1];
+						const row = objectToRowMap[lastChoice];
+						if (row) {
+							exitCounts[row.id] = (exitCounts[row.id] || 0) + 1;
+							validExits++;
+						}
+					}
+				} catch (e) {}
+			});
+
+			exitRowStats = Object.entries(exitCounts)
+				.map(([rowId, count]) => {
+					const row = projectData.rows.find((r: any) => r.id === rowId);
+					return {
+						id: rowId,
+						title: row ? row.title || row.id : rowId,
+						count,
+						percent: validExits > 0 ? (count / validExits) * 100 : 0
+					};
+				})
+				.sort((a, b) => b.count - a.count);
+		} else {
+			exitRowStats = [];
+		}
+	}
 </script>
 
 <div class="container">
@@ -455,7 +520,9 @@
 			<li><a href="#controls">Controls</a></li>
 			<li><a href="#visitor-graph">Visitor Graph</a></li>
 			<li><a href="#general-stats">General Stats</a></li>
+			<li><a href="#time-distribution">Time Distribution</a></li>
 			<li><a href="#correlations">Choice Correlations</a></li>
+			<li><a href="#exit-analysis">Exit Analysis</a></li>
 			<li><a href="#row-analysis">Row Analysis</a></li>
 			<li><a href="#object-stats">Object Statistics</a></li>
 		</ul>
@@ -634,6 +701,31 @@
 		</div>
 	</div>
 
+	<!-- Time Distribution -->
+	<h2 id="time-distribution">Time on Page Distribution</h2>
+	<div class="chart-container">
+		{#if timeDistribution.length > 0}
+			{@const maxCount = Math.max(...timeDistribution.map((d) => d.count), 1)}
+			<div class="distribution-chart">
+				{#each timeDistribution as d}
+					<div class="dist-bar-container">
+						<div class="dist-label">{d.label}</div>
+						<div class="dist-bar-wrapper">
+							<div
+								class="dist-bar"
+								style="width: {(d.count / maxCount) * 100}%"
+								title="{d.count} users ({d.percent.toFixed(1)}%)"
+							></div>
+							<span class="dist-value">{d.count} ({d.percent.toFixed(1)}%)</span>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="text-gray italic">No time data available.</p>
+		{/if}
+	</div>
+
 	<!-- Choice Correlations -->
 	<h2 id="correlations">Choice Correlations (Top 10)</h2>
 	<div class="correlation-grid">
@@ -654,6 +746,26 @@
 		{/each}
 		{#if topCorrelations.length === 0}
 			<p class="text-gray italic">No significant correlations found.</p>
+		{/if}
+	</div>
+
+	<!-- Exit Analysis -->
+	<h2 id="exit-analysis">Exit Point Analysis (Last Selected Row)</h2>
+	<div class="rows-container">
+		{#if exitRowStats.length > 0}
+			{#each exitRowStats as row}
+				<div class="row-card">
+					<div class="row-item-header">
+						<span class="row-item-title font-bold">{row.title}</span>
+						<span class="row-item-percent">{row.count} users ({row.percent.toFixed(1)}%)</span>
+					</div>
+					<div class="progress-bar-bg">
+						<div class="progress-bar-fill" style="width: {row.percent}%"></div>
+					</div>
+				</div>
+			{/each}
+		{:else}
+			<p class="text-gray italic">No exit data available.</p>
 		{/if}
 	</div>
 
@@ -1073,5 +1185,38 @@
 		background-color: #ef4444;
 		height: 2px;
 		margin-top: 0.4rem;
+	}
+	.distribution-chart {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.dist-bar-container {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+	.dist-label {
+		width: 80px;
+		text-align: right;
+		font-size: 0.875rem;
+		color: #666;
+	}
+	.dist-bar-wrapper {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.dist-bar {
+		height: 1.5rem;
+		background-color: #3b82f6;
+		border-radius: 0.25rem;
+		min-width: 2px;
+	}
+	.dist-value {
+		font-size: 0.875rem;
+		color: #666;
+		white-space: nowrap;
 	}
 </style>
