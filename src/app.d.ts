@@ -14,6 +14,7 @@ declare global {
 				pepper: string;
 				RESEND_API: string;
 				emailSender: string;
+				ORIGIN: string;
 			};
 			context: {
 				waitUntil(promise: Promise<any>): void;

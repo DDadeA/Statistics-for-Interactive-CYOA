@@ -28,6 +28,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 	// Generate project_id / secret key
 	const project_id = crypto.randomUUID();
 	const secret_key = crypto.randomUUID();
+	const origin = platform.env.ORIGIN; // Server origin URL
 
 	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
