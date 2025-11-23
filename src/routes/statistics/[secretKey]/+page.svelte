@@ -16,6 +16,128 @@
 	const finderUrl = 'https://icc-project-finder.aseli4488.workers.dev/?path=';
 	const proxyUrl = 'https://corsproxy.io/?';
 
+	// Options
+	let uniqueUsersOnly = false;
+	let timeRange = 'all'; // 'all', '24h', '7d', '30d'
+
+	// Derived Data
+	let filteredLogData: LogEntry[] = [];
+	let visitorGraphData: { date: string; count: number }[] = [];
+	let rowStatistics: any[] = [];
+	let generalStats: any = {};
+
+	// Reactive Statements for Data Processing
+	$: {
+		let data = [...logData];
+
+		// 1. Filter by Time Range
+		const now = new Date();
+		if (timeRange !== 'all') {
+			const cutoff = new Date();
+			if (timeRange === '24h') cutoff.setHours(now.getHours() - 24);
+			if (timeRange === '7d') cutoff.setDate(now.getDate() - 7);
+			if (timeRange === '30d') cutoff.setDate(now.getDate() - 30);
+			data = data.filter((entry) => new Date(entry.created_at) >= cutoff);
+		}
+
+		// 2. Filter by Unique Users (Latest entry per UID)
+		if (uniqueUsersOnly) {
+			const latestEntries = new Map<string, LogEntry>();
+			data.forEach((entry) => {
+				const existing = latestEntries.get(entry.uid);
+				if (
+					!existing ||
+					new Date(entry.created_at).getTime() > new Date(existing.created_at).getTime()
+				) {
+					latestEntries.set(entry.uid, entry);
+				}
+			});
+			data = Array.from(latestEntries.values());
+		}
+
+		filteredLogData = data;
+
+		// 3. Visitor Graph Data (Accumulated)
+		// Sort by date ascending
+		const sortedByDate = [...data].sort(
+			(a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+		);
+		let cumulative = 0;
+		visitorGraphData = sortedByDate.map((entry, index) => {
+			cumulative = index + 1;
+			return {
+				date: entry.created_at,
+				count: cumulative
+			};
+		});
+
+		// 4. General Stats
+		let totalTime = 0;
+		let timeCount = 0;
+		const viewports: Record<string, number> = {};
+
+		data.forEach((entry) => {
+			try {
+				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+				if (d.timeOnPage) {
+					totalTime += d.timeOnPage;
+					timeCount++;
+				}
+				if (d.viewportSize) {
+					viewports[d.viewportSize] = (viewports[d.viewportSize] || 0) + 1;
+				}
+			} catch (e) {}
+		});
+
+		generalStats = {
+			avgTimeOnPage: timeCount > 0 ? Math.round(totalTime / timeCount / 1000) : 0, // seconds
+			topViewports: Object.entries(viewports)
+				.sort(([, a], [, b]) => b - a)
+				.slice(0, 5)
+		};
+	}
+
+	// 5. Row Statistics
+	$: {
+		if (projectData && projectData.rows && filteredLogData.length > 0) {
+			rowStatistics = projectData.rows.map((row: any) => {
+				const rowObjects = row.objects || [];
+				const rowObjectIds = new Set(rowObjects.map((o: any) => o.id));
+
+				let rowTotalSelections = 0;
+				const objectCounts: Record<string, number> = {};
+
+				filteredLogData.forEach((entry) => {
+					try {
+						const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+						if (d.selectedChoices) {
+							d.selectedChoices.forEach((choiceId: string) => {
+								if (rowObjectIds.has(choiceId)) {
+									objectCounts[choiceId] = (objectCounts[choiceId] || 0) + 1;
+									rowTotalSelections++;
+								}
+							});
+						}
+					} catch (e) {}
+				});
+
+				return {
+					...row,
+					totalSelections: rowTotalSelections,
+					objectStats: rowObjects.map((obj: any) => ({
+						...obj,
+						count: objectCounts[obj.id] || 0,
+						percentInRow:
+							rowTotalSelections > 0 ? ((objectCounts[obj.id] || 0) / rowTotalSelections) * 100 : 0,
+						percentTotal: ((objectCounts[obj.id] || 0) / filteredLogData.length) * 100
+					}))
+				};
+			});
+		} else {
+			rowStatistics = [];
+		}
+	}
+
 	let statistics: Record<string, number> = {};
 	let objectMap: Record<string, any> = {};
 
@@ -176,13 +298,13 @@
 		}
 	});
 
-	// Statistics Calculation
+	// Statistics Calculation (Based on filtered data)
 	$: statistics = (() => {
-		if (!logData || logData.length === 0) return {};
+		if (!filteredLogData || filteredLogData.length === 0) return {};
 
 		const stats: Record<string, number> = {};
 
-		logData.forEach((entry) => {
+		filteredLogData.forEach((entry) => {
 			try {
 				const data = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
 				if (data.selectedChoices && Array.isArray(data.selectedChoices)) {
@@ -212,7 +334,21 @@
 </script>
 
 <div class="container">
-	<h1>Please add this code into {'\<body\>'} of the index.html</h1>
+	<!-- Table of Contents -->
+	<div class="toc">
+		<h3>Table of Contents</h3>
+		<ul>
+			<li><a href="#setup">Setup</a></li>
+			<li><a href="#controls">Controls</a></li>
+			<li><a href="#visitor-graph">Visitor Graph</a></li>
+			<li><a href="#general-stats">General Stats</a></li>
+			<li><a href="#row-analysis">Row Analysis</a></li>
+			<li><a href="#object-stats">Object Statistics</a></li>
+			<li><a href="#raw-data">Raw Data</a></li>
+		</ul>
+	</div>
+
+	<h1 id="setup">Please add this code into {'\<body\>'} of the index.html</h1>
 	<div class="code-block">
 		<pre>
 	{`
@@ -224,10 +360,30 @@
 	</pre>
 	</div>
 
-	<h1>Statistics</h1>
-	<div class="button-group">
-		<button class="btn-primary" on:click={loadData}>UPDATE STATISTICS</button>
-		<button class="btn-success" on:click={updateProjectJson}>UPDATE PROJECT JSON</button>
+	<h1 id="controls">Statistics Controls</h1>
+	<div class="controls-section">
+		<div class="button-group">
+			<button class="btn-primary" on:click={loadData}>UPDATE STATISTICS</button>
+			<button class="btn-success" on:click={updateProjectJson}>UPDATE PROJECT JSON</button>
+		</div>
+
+		<div class="filters">
+			<label class="toggle">
+				<input type="checkbox" bind:checked={uniqueUsersOnly} />
+				<span class="slider"></span>
+				<span class="label-text">Unique Users Only (Exclude Duplicates by UID)</span>
+			</label>
+
+			<div class="select-group">
+				<label for="timeRange">Time Range:</label>
+				<select id="timeRange" bind:value={timeRange}>
+					<option value="all">All Time</option>
+					<option value="30d">Last 30 Days</option>
+					<option value="7d">Last 7 Days</option>
+					<option value="24h">Last 24 Hours</option>
+				</select>
+			</div>
+		</div>
 	</div>
 
 	{#if progressMessage}
@@ -236,7 +392,99 @@
 		</div>
 	{/if}
 
+	<!-- Visitor Graph -->
+	<h2 id="visitor-graph">Visitor Count (Accumulated)</h2>
+	<div class="chart-container">
+		{#if visitorGraphData.length > 1}
+			<svg viewBox="0 0 1000 300" class="chart">
+				<!-- X and Y Axis -->
+				<line x1="50" y1="250" x2="950" y2="250" stroke="#ccc" />
+				<line x1="50" y1="250" x2="50" y2="50" stroke="#ccc" />
+
+				<!-- Data Line -->
+				<polyline
+					fill="none"
+					stroke="#3b82f6"
+					stroke-width="2"
+					points={visitorGraphData
+						.map((d, i) => {
+							const x = 50 + (i / (visitorGraphData.length - 1)) * 900;
+							const maxCount = visitorGraphData[visitorGraphData.length - 1].count;
+							const y = 250 - (d.count / maxCount) * 200;
+							return `${x},${y}`;
+						})
+						.join(' ')}
+				/>
+
+				<!-- Labels (Simplified) -->
+				<text x="50" y="270" font-size="12" fill="#666"
+					>{new Date(visitorGraphData[0].date).toLocaleDateString()}</text
+				>
+				<text x="950" y="270" font-size="12" fill="#666" text-anchor="end"
+					>{new Date(visitorGraphData[visitorGraphData.length - 1].date).toLocaleDateString()}</text
+				>
+				<text x="40" y="50" font-size="12" fill="#666" text-anchor="end"
+					>{visitorGraphData[visitorGraphData.length - 1].count}</text
+				>
+			</svg>
+		{:else}
+			<p class="text-gray italic">Not enough data to display graph.</p>
+		{/if}
+	</div>
+
+	<!-- General Stats -->
+	<h2 id="general-stats">General Statistics</h2>
+	<div class="stats-grid">
+		<div class="stat-card">
+			<h3>Avg. Time on Page</h3>
+			<p class="stat-value">{generalStats.avgTimeOnPage || 0}s</p>
+		</div>
+		<div class="stat-card">
+			<h3>Total Visitors (Filtered)</h3>
+			<p class="stat-value">{filteredLogData.length}</p>
+		</div>
+		<div class="stat-card wide">
+			<h3>Top Viewports</h3>
+			<ul>
+				{#if generalStats.topViewports}
+					{#each generalStats.topViewports as [size, count]}
+						<li>{size}: {count}</li>
+					{/each}
+				{/if}
+			</ul>
+		</div>
+	</div>
+
+	<!-- Row Analysis -->
 	{#if projectData}
+		<h2 id="row-analysis">Row Analysis</h2>
+		<div class="rows-container">
+			{#each rowStatistics as row}
+				<div class="row-card">
+					<h3>
+						{row.title || row.id}
+						<span class="text-sm text-gray">({row.totalSelections} selections)</span>
+					</h3>
+					<div class="row-items">
+						{#each row.objectStats as obj}
+							<div class="row-item">
+								<div class="row-item-header">
+									<span class="row-item-title">{obj.title || obj.id}</span>
+									<span class="row-item-percent"
+										>{obj.percentInRow.toFixed(1)}% (Row) / {obj.percentTotal.toFixed(1)}% (Total)</span
+									>
+								</div>
+								<div class="progress-bar-bg small">
+									<div class="progress-bar-fill" style="width: {obj.percentInRow}%"></div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
+		</div>
+
+		<h2 id="object-stats">Object Statistics</h2>
 		<div class="grid">
 			{#each Object.entries(statistics).sort(([, a], [, b]) => b - a) as [id, count]}
 				{@const obj = objectMap[id]}
@@ -263,10 +511,13 @@
 						<span class="text-xl font-bold text-blue">{count}</span>
 					</div>
 					<div class="progress-bar-bg">
-						<div class="progress-bar-fill" style="width: {(count / logData.length) * 100}%"></div>
+						<div
+							class="progress-bar-fill"
+							style="width: {(count / filteredLogData.length) * 100}%"
+						></div>
 					</div>
 					<p class="text-xs text-right text-gray mt-1">
-						{((count / logData.length) * 100).toFixed(1)}%
+						{((count / filteredLogData.length) * 100).toFixed(1)}%
 					</p>
 				</div>
 			{/each}
@@ -281,7 +532,7 @@
 		<pre class="mt-4">{JSON.stringify(statistics, null, 2)}</pre>
 	{/if}
 
-	<h2 class="mt-8 mb-4">Raw Data</h2>
+	<h2 id="raw-data" class="mt-8 mb-4">Raw Data</h2>
 	<pre class="code-block text-xs">{JSON.stringify(logData, null, 2)}</pre>
 </div>
 
@@ -341,7 +592,7 @@
 	}
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 		gap: 1rem;
 	}
 	.card {
@@ -355,7 +606,7 @@
 	}
 	.card img {
 		width: 100%;
-		height: 128px;
+		height: 100px;
 		object-fit: cover;
 		border-radius: 0.25rem;
 		margin-bottom: 0.5rem;
@@ -410,5 +661,130 @@
 	pre {
 		white-space: pre-wrap;
 		word-wrap: break-word;
+	}
+	.toc {
+		background-color: #f3f4f6;
+		padding: 1rem;
+		border-radius: 0.5rem;
+		margin-bottom: 2rem;
+	}
+	.toc ul {
+		list-style: none;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+	.toc a {
+		text-decoration: none;
+		color: #2563eb;
+		font-weight: bold;
+	}
+	.controls-section {
+		background-color: #fff;
+		border: 1px solid #e5e7eb;
+		padding: 1rem;
+		border-radius: 0.5rem;
+		margin-bottom: 2rem;
+	}
+	.filters {
+		display: flex;
+		gap: 2rem;
+		align-items: center;
+		margin-top: 1rem;
+		flex-wrap: wrap;
+	}
+	.toggle {
+		display: flex;
+		align-items: center;
+		cursor: pointer;
+	}
+	.toggle input {
+		display: none;
+	}
+	.slider {
+		width: 40px;
+		height: 20px;
+		background-color: #ccc;
+		border-radius: 20px;
+		position: relative;
+		margin-right: 10px;
+		transition: 0.3s;
+	}
+	.slider::before {
+		content: '';
+		position: absolute;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background-color: white;
+		top: 2px;
+		left: 2px;
+		transition: 0.3s;
+	}
+	.toggle input:checked + .slider {
+		background-color: #2563eb;
+	}
+	.toggle input:checked + .slider::before {
+		transform: translateX(20px);
+	}
+	.chart-container {
+		background-color: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		padding: 1rem;
+		margin-bottom: 2rem;
+	}
+	.stats-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 1rem;
+		margin-bottom: 2rem;
+	}
+	.stat-card {
+		background-color: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		padding: 1rem;
+		text-align: center;
+	}
+	.stat-card.wide {
+		grid-column: span 2;
+		text-align: left;
+	}
+	.stat-value {
+		font-size: 2rem;
+		font-weight: bold;
+		color: #2563eb;
+	}
+	.rows-container {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-bottom: 2rem;
+	}
+	.row-card {
+		background-color: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		padding: 1rem;
+	}
+	.row-item {
+		margin-bottom: 0.5rem;
+	}
+	.row-item-header {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.875rem;
+		margin-bottom: 0.25rem;
+	}
+	.progress-bar-bg.small {
+		height: 0.4rem;
+	}
+	.progress-bar-bg.small .progress-bar-fill {
+		height: 0.4rem;
+	}
+	html {
+		scroll-behavior: smooth;
 	}
 </style>
