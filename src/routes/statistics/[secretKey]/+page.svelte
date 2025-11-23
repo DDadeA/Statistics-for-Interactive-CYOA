@@ -162,6 +162,17 @@
 		};
 
 		if (times.length > 0) {
+			// Calculate Median
+			times.sort((a, b) => a - b);
+			let median = 0;
+			const mid = Math.floor(times.length / 2);
+			if (times.length % 2 === 0) {
+				median = (times[mid - 1] + times[mid]) / 2;
+			} else {
+				median = times[mid];
+			}
+			generalStats.medianTimeOnPage = Math.round(median);
+
 			if (isLogarithmicTime) {
 				// Logarithmic Buckets
 				const buckets = {
@@ -185,7 +196,7 @@
 				}));
 			} else {
 				// Linear Adaptive Buckets (Smart Adaptive)
-				times.sort((a, b) => a - b);
+				// times is already sorted
 				const p95Index = Math.floor(times.length * 0.95);
 				const p95 = times[p95Index] || times[times.length - 1];
 
@@ -761,6 +772,11 @@
 	<!-- Time Distribution -->
 	<h2 id="time-distribution">
 		Time on Page Distribution
+		<span class="text-sm font-normal text-gray ml-2">
+			(Avg: {formatTime(generalStats.avgTimeOnPage || 0)}, Median: {formatTime(
+				generalStats.medianTimeOnPage || 0
+			)})
+		</span>
 		<label class="toggle inline-toggle">
 			<input type="checkbox" bind:checked={isLogarithmicTime} />
 			<span class="slider small"></span>
@@ -1301,5 +1317,8 @@
 		font-size: 0.875rem;
 		color: #666;
 		white-space: nowrap;
+	}
+	.ml-2 {
+		margin-left: 0.5rem;
 	}
 </style>
