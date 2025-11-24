@@ -486,11 +486,11 @@
 		await main(currentURL);
 	}
 
-	async function loadData() {
+	async function loadData(log_type: number = 1) {
 		if (!secretKey) return;
 		// Handle the form submission logic here
 		// console.log('Secret Key submitted:', secretKey);
-		let result = await fetch('/api/log', {
+		let result = await fetch(`/api/log?log_type=${log_type}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json',
@@ -504,6 +504,9 @@
 
 		if (logData.length > 0) {
 			addToSavedProjects(secretKey, logData[0].project_id);
+		} else if (log_type === 1) {
+			// Try loading CSP logs if no regular logs found
+			await loadData(2);
 		}
 	}
 

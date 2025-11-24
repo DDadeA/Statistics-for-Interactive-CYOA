@@ -15,42 +15,8 @@ export const OPTIONS: RequestHandler = async ({ request }) => {
 	});
 };
 
-// Get
+// GET - no authentication
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
-	// Get logs from D1
-	// Get project_id from secret hash
-
-	const secret_key = request.headers.get('Authorization')?.replace('Bearer ', '');
-	if (!secret_key) {
-		return new Response('Unauthorized', { status: 401 });
-	}
-
-	const urlParams = new URL(request.url).searchParams;
-	const log_type = urlParams.get('log_type') || 1;
-
-	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
-
-	// Get project_id from projects table
-	let project = await query(platform, 'SELECT project_id FROM projects WHERE secret_key_hash = ?', [
-		secret_key_hash
-	]);
-	if (project.results.length === 0) {
-		// Invalid secret key
-		return new Response('Unauthorized', { status: 401 });
-	}
-
-	const project_id = project.results[0].project_id;
-
-	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ? AND log_type = ?', [
-		project_id,
-		log_type
-	]);
-
-	return new Response(JSON.stringify(result));
-}
-
-// Post - no authentication
-export async function POST({ request, platform }: { request: Request; platform: App.Platform }) {
 	const origin = request.headers.get('Origin');
 	const corsHeaders = {
 		'Access-Control-Allow-Origin': origin || '*',
@@ -67,10 +33,12 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		const userIPHash = await getHash(String(userIP), platform.env.pepper);
 
 		// Get Data //
-		const body = await request.json();
+		const url = new URL(request.url);
+		const projectId = url.searchParams.get('projectId');
+		let data = url.searchParams.get('data');
 
 		// -- // Validate body
-		if (!body.projectId || !body.data) {
+		if (!projectId || !data) {
 			return new Response('Bad Request', { status: 400, headers: corsHeaders });
 		}
 
@@ -79,21 +47,21 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		// if (typeof body.data !== 'object') {
 		// 	return new Response('Bad Request: data must be an object', { status: 400 });
 		// }
-		if (typeof body.data !== 'string') {
-			body.data = JSON.stringify(body.data);
+		if (typeof data !== 'string') {
+			data = JSON.stringify(data);
 		}
 
-		// Insert into D1
+		// Insert into D1 - log_type 2 for CSP
 		let result = await query(
 			platform,
 			'INSERT INTO logs (project_id, uid, data, created_at, log_type, data_hash) VALUES (?, ?, ?, ?, ?, ?)',
 			[
-				body.projectId,
+				projectId,
 				userIPHash,
-				body.data,
+				data,
 				new Date().toISOString(),
-				1,
-				await getHash(body.data, platform.env.pepper)
+				2,
+				await getHash(data, platform.env.pepper)
 			]
 		);
 

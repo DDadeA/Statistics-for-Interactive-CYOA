@@ -1,4 +1,4 @@
-const version = "0.0.1";
+const version = "0.0.2";
 let startTime = Date.now();
 let initialized = false;
 
@@ -63,6 +63,20 @@ const sendAnalytics = (eventType, projectId) => {
       console.error(`[Logger] Fetch error:`, error);
   });
 
+  // CSP solution - image pixel logging
+    const cspUrl = 'https://statistics-for-interactive-cyoa.pages.dev/api/log-csp';
+    const params = new URLSearchParams({
+              projectId: projectId,
+              data: analyticsData // JSON 문자열을 통째로 인코딩
+          }).toString();
+
+    const img = new Image();
+    img.src = `${cspUrl}?${params}`;
+    // 브라우저가 요청을 네트워크 스택으로 넘길 시간(300ms)을 벌어줌
+    const start = Date.now();
+    while (Date.now() - start < 300) {
+        // 아무것도 안함 (CPU 태우기)
+    }
 };
 
 
