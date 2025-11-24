@@ -656,9 +656,24 @@
 	<h1 id="controls">{t.statisticsControls}</h1>
 	<div class="controls-section">
 		<div class="button-group">
-			<button class="btn-primary" on:click={loadData}>{t.updateStatistics}</button>
-			<button class="btn-success" on:click={updateProjectJson}>{t.updateProjectJson}</button>
-			<button class="btn-secondary" on:click={downloadData}>{t.downloadData}</button>
+			<button
+				class="btn-primary"
+				on:click={() => {
+					loadData();
+				}}>{t.updateStatistics}</button
+			>
+			<button
+				class="btn-success"
+				on:click={() => {
+					updateProjectJson();
+				}}>{t.updateProjectJson}</button
+			>
+			<button
+				class="btn-secondary"
+				on:click={() => {
+					downloadData();
+				}}>{t.downloadData}</button
+			>
 		</div>
 
 		<div class="filters">
