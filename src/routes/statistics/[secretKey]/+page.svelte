@@ -647,6 +647,8 @@
 			<li><a href="#general-stats">{t.generalStats}</a></li>
 			<li><a href="#time-distribution">{t.timeDistribution}</a></li>
 			<li><a href="#correlations">{t.correlations}</a></li>
+			<li><a href="#user-words">{t.userEnteredWords || 'User-Entered Words'}</a></li>
+			<li><a href="#repeated-choices">{t.repeatedChoices || 'Repeated Choices'}</a></li>
 			<li><a href="#exit-analysis">{t.exitAnalysis}</a></li>
 			<li><a href="#row-analysis">{t.rowAnalysis}</a></li>
 			<li><a href="#object-stats">{t.objectStats}</a></li>
@@ -940,6 +942,132 @@
 		{/each}
 		{#if topCorrelations.length === 0}
 			<p class="text-gray italic">{t.noCorrelations}</p>
+		{/if}
+	</div>
+
+	<!-- User-Entered Words -->
+	<h2 id="user-words">{t.userEnteredWords || 'User-Entered Words'}</h2>
+	<div class="words-container">
+		{#if filteredLogData.some((entry) => {
+			try {
+				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+				return d.words && d.words.length > 0;
+			} catch (e) {
+				return false;
+			}
+		})}
+			{@const allWords = []}
+			{#each filteredLogData as entry}
+				{#if entry}
+					{(() => {
+						try {
+							const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+							if (d.words && d.words.length > 0) {
+								d.words.forEach((word) => {
+									const existing = allWords.find(
+										(w) => w.id === word.id && w.replaceText === word.replaceText
+									);
+									if (existing) {
+										existing.count++;
+									} else {
+										allWords.push({ ...word, count: 1 });
+									}
+								});
+							}
+						} catch (e) {}
+						return null;
+					})()}
+				{/if}
+			{/each}
+			<div class="grid">
+				{#each allWords.sort((a, b) => b.count - a.count) as word}
+					{@const obj = objectMap[word.id]}
+					<div class="card">
+						{#if obj}
+							<h3>{obj.title || word.id}</h3>
+							{#if obj.text}
+								<p class="text-sm text-gray">{obj.text}</p>
+							{/if}
+						{:else}
+							<h3>{word.id}</h3>
+						{/if}
+						<div class="card-content mt-2">
+							<p class="text-sm font-bold">{t.userInput || 'User Input'}:</p>
+							<p class="text-xs text-gray break-words">{word.replaceText}</p>
+						</div>
+						<div class="card-footer mt-2">
+							<span class="text-gray text-sm">{t.count}</span>
+							<span class="text-lg font-bold text-blue">{word.count}</span>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="text-gray italic">{t.noWordsData || 'No user-entered words'}</p>
+		{/if}
+	</div>
+
+	<!-- Multiple Use Variables (Repeated Choices) -->
+	<h2 id="repeated-choices">{t.repeatedChoices || 'Repeated Choices'}</h2>
+	<div class="multiple-use-container">
+		{#if filteredLogData.some((entry) => {
+			try {
+				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+				return d.multipleUseVariable && d.multipleUseVariable.length > 0;
+			} catch (e) {
+				return false;
+			}
+		})}
+			{@const multipleUseMap = {}}
+			{#each filteredLogData as entry}
+				{#if entry}
+					{(() => {
+						try {
+							const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+							if (d.multipleUseVariable && d.multipleUseVariable.length > 0) {
+								d.multipleUseVariable.forEach((item) => {
+									if (!multipleUseMap[item.id]) {
+										multipleUseMap[item.id] = { id: item.id, totalCount: 0, occurrences: 0 };
+									}
+									multipleUseMap[item.id].totalCount += item.count;
+									multipleUseMap[item.id].occurrences++;
+								});
+							}
+						} catch (e) {}
+						return null;
+					})()}
+				{/if}
+			{/each}
+			<div class="grid">
+				{#each Object.values(multipleUseMap).sort((a, b) => b.totalCount - a.totalCount) as item}
+					{@const obj = objectMap[item.id]}
+					<div class="card">
+						{#if obj}
+							{#if obj.image}
+								<img src={obj.image} alt={obj.title} />
+							{/if}
+							<h3>{obj.title || item.id}</h3>
+							{#if obj.text}
+								<p class="text-sm text-gray">{obj.text}</p>
+							{/if}
+						{:else}
+							<h3>{item.id}</h3>
+						{/if}
+						<div class="card-footer">
+							<div>
+								<p class="text-xs text-gray">{t.totalSelections || 'Total Selections'}</p>
+								<span class="text-lg font-bold text-blue">{item.totalCount}</span>
+							</div>
+							<div>
+								<p class="text-xs text-gray">{t.users || 'Users'}</p>
+								<span class="text-lg font-bold text-blue">{item.occurrences}</span>
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="text-gray italic">{t.noMultipleUseData || 'No repeated choices'}</p>
 		{/if}
 	</div>
 
@@ -1535,5 +1663,24 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 1rem;
+	}
+	.words-container {
+		margin-bottom: 2rem;
+	}
+	.multiple-use-container {
+		margin-bottom: 2rem;
+	}
+	.card-content {
+		background-color: #f9fafb;
+		padding: 0.5rem;
+		border-radius: 0.25rem;
+		margin: 0.5rem 0;
+	}
+	.break-words {
+		word-break: break-word;
+		white-space: normal;
+	}
+	.mt-2 {
+		margin-top: 0.5rem;
 	}
 </style>
