@@ -1,4 +1,4 @@
-const version = "0.0.2";
+const version = "0.0.3";
 let startTime = Date.now();
 let initialized = false;
 
@@ -14,6 +14,7 @@ const sendAnalytics = (eventType, projectId) => {
   console.log(`[Logger] sendAnalytics called. Event: ${eventType}`);
 
   const choices = getChoices();
+  const words = getWords();
   console.log(`[Logger] Choices found: ${choices.length}`);
 
   const analyticsData = JSON.stringify({
@@ -21,7 +22,9 @@ const sendAnalytics = (eventType, projectId) => {
     version: version,
     projectHash: getProjectHash(),
 
+    words: words,
     selectedChoices: choices.filter(c=>c.isActive).map(c=>c.id),
+    multipleUseVariable: choices.filter(c=>c.multipleUseVariable!=0).map(c=>({id: c.id, count: c.multipleUseVariable})),
     timeOnPage: Date.now() - startTime,
     timestamp: new Date().toISOString(),
     
@@ -125,8 +128,7 @@ function getProjectHash() {
     return hashString(dataToHash);
 }
 
-
-function getChoices() {
+function getApp() {
     let app;
     try {
         // try vue ( ICC, ICC Plus < 2.0 )
@@ -138,9 +140,32 @@ function getChoices() {
 
       if (!app) {
         console.warn("Could not find app state for logging.");
-        return [];
+        return null;
       }
 
-      return app.rows.flatMap(row => row.objects || []);
+      return app;
 }
-  
+
+
+function getChoices() {
+    let app = getApp();
+    if (!app) return [];
+
+    return app.rows.flatMap(row => row.objects || []);
+}
+
+function getWords() {
+    let app = getApp();
+    if (!app) return [];
+
+    let words = [];
+
+// Loop for app.words and if it's not undefined, add to words array (It's proxy object)
+   for (const word of app.words) {
+       words.push({
+        id: word.id,
+        replaceText: word.replaceText,
+       });
+   }
+   return words;
+}
