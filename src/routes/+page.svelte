@@ -111,7 +111,7 @@
 
 			<div class="stat-container">
 				<div class="stat-value">{totalCount.toLocaleString()}</div>
-				<div class="stat-label">Total Play History Recorded</div>
+				<div class="stat-label">Players recorded</div>
 			</div>
 
 			<div class="hero-actions">
@@ -203,22 +203,14 @@
 {/if}
 
 <style>
+	@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;500;600;800&family=Inter:wght@300;400;500&display=swap');
+
 	:global(body) {
 		margin: 0;
-		font-family:
-			'Inter',
-			-apple-system,
-			BlinkMacSystemFont,
-			'Segoe UI',
-			Roboto,
-			Oxygen,
-			Ubuntu,
-			Cantarell,
-			'Open Sans',
-			'Helvetica Neue',
-			sans-serif;
-		background-color: #f8f9fa;
-		color: #333;
+		font-family: 'Inter', sans-serif;
+		background-color: #f9f9f9;
+		color: #222;
+		font-weight: 300;
 	}
 
 	.page-wrapper {
@@ -229,64 +221,74 @@
 
 	/* Hero Section */
 	.hero {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
-		padding: 4rem 2rem;
+		background-color: #0f172a;
+		color: #fff;
+		padding: 6rem 2rem;
 		text-align: center;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+		position: relative;
+		overflow: hidden;
 	}
 
 	.hero-content {
 		max-width: 900px;
 		margin: 0 auto;
+		position: relative;
+		z-index: 2;
 	}
 
 	.title {
-		font-size: 2.5rem;
-		font-weight: 800;
-		margin: 0 0 0.5rem 0;
-		line-height: 1.2;
+		font-family: 'Bodoni Moda', serif;
+		font-size: 3.5rem;
+		font-weight: 600;
+		margin: 0 0 1rem 0;
+		line-height: 1.1;
+		letter-spacing: -0.02em;
 	}
 
 	.acronym {
-		opacity: 0.8;
 		font-weight: 400;
+		font-style: italic;
+		opacity: 0.7;
+		font-size: 0.8em;
 	}
 
 	.subtitle {
-		font-size: 1.2rem;
-		opacity: 0.9;
-		margin-bottom: 3rem;
+		font-size: 1.1rem;
+		opacity: 0.8;
+		margin-bottom: 4rem;
+		font-weight: 300;
+		letter-spacing: 0.02em;
+		max-width: 600px;
+		margin-left: auto;
+		margin-right: auto;
 	}
 
 	.stat-container {
-		margin: 3rem 0;
-		padding: 2rem;
-		background: rgba(255, 255, 255, 0.1);
-		border-radius: 16px;
-		backdrop-filter: blur(10px);
+		margin: 2rem 0 4rem;
+		padding: 0 2rem;
 		display: inline-block;
-		min-width: 300px;
+		border-left: 1px solid rgba(255, 255, 255, 0.2);
+		border-right: 1px solid rgba(255, 255, 255, 0.2);
 	}
 
 	.stat-value {
-		font-size: 5rem;
-		font-weight: 900;
+		font-family: 'Bodoni Moda', serif;
+		font-size: 6rem;
+		font-weight: 500;
 		line-height: 1;
-		text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 	}
 
 	.stat-label {
-		font-size: 1rem;
+		font-size: 0.75rem;
 		text-transform: uppercase;
-		letter-spacing: 2px;
-		opacity: 0.8;
-		margin-top: 0.5rem;
+		letter-spacing: 0.2em;
+		opacity: 0.6;
+		margin-top: 1rem;
 	}
 
 	.hero-actions {
 		display: flex;
-		gap: 1rem;
+		gap: 1.5rem;
 		justify-content: center;
 		margin-top: 2rem;
 	}
@@ -294,158 +296,171 @@
 	/* Main Content */
 	.container {
 		max-width: 900px;
-		margin: -2rem auto 2rem;
+		margin: 4rem auto;
 		padding: 0 2rem;
-		position: relative;
-		z-index: 10;
 		width: 100%;
 		box-sizing: border-box;
 	}
 
 	.section-header {
-		font-size: 1.5rem;
-		margin-bottom: 1.5rem;
-		color: #444;
-		padding-left: 0.5rem;
-		border-left: 4px solid #764ba2;
+		font-family: 'Bodoni Moda', serif;
+		font-size: 2rem;
+		margin-bottom: 2rem;
+		color: #111;
+		border-bottom: 1px solid #eee;
+		padding-bottom: 1rem;
+		font-weight: 500;
 	}
 
 	.project-list {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 1.5rem;
 	}
 
 	.project-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1.5rem 2rem;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+		border: 1px solid #e0e0e0;
+		padding: 2rem;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		transition:
-			transform 0.2s,
-			box-shadow 0.2s;
+		transition: all 0.3s ease;
 	}
 
 	.project-card:hover {
+		border-color: #000;
 		transform: translateY(-2px);
-		box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 	}
 
 	.card-info h3 {
-		margin: 0 0 0.25rem 0;
-		font-size: 1.25rem;
-		color: #2d3748;
+		font-family: 'Bodoni Moda', serif;
+		margin: 0 0 0.5rem 0;
+		font-size: 1.5rem;
+		color: #000;
+		font-weight: 500;
 	}
 
 	.project-meta {
-		font-size: 0.875rem;
-		color: #718096;
-		font-family: monospace;
+		font-size: 0.8rem;
+		color: #666;
+		font-family: 'Inter', monospace;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
 	}
 
 	.card-actions {
 		display: flex;
-		gap: 0.75rem;
+		gap: 1rem;
 	}
 
 	.empty-state {
 		text-align: center;
-		padding: 4rem 2rem;
+		padding: 6rem 2rem;
 		background: white;
-		border-radius: 12px;
-		border: 2px dashed #e2e8f0;
-		color: #a0aec0;
+		border: 1px solid #eee;
+		color: #888;
 	}
 
 	.empty-sub {
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		margin-top: 0.5rem;
+		font-weight: 300;
 	}
 
 	/* Buttons */
 	.btn {
-		padding: 0.75rem 1.5rem;
-		border: none;
-		border-radius: 8px;
+		padding: 0.8rem 2rem;
+		border: 1px solid transparent;
+		border-radius: 0; /* No roundness */
 		cursor: pointer;
-		font-size: 1rem;
-		font-weight: 600;
+		font-size: 0.8rem;
+		font-weight: 500;
 		text-decoration: none;
-		transition: all 0.2s;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		transition: all 0.3s ease;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 	}
 
 	.btn.large {
-		padding: 1rem 2rem;
-		font-size: 1.1rem;
+		padding: 1rem 2.5rem;
+		font-size: 0.9rem;
 	}
 
 	.btn.primary {
 		background-color: #fff;
-		color: #764ba2;
+		color: #000;
+		border-color: #fff;
 	}
 
 	.btn.primary:hover {
-		background-color: #f0f0f0;
-		transform: translateY(-1px);
+		background-color: transparent;
+		color: #fff;
 	}
 
-	/* In modal, primary button should be colored */
+	/* In modal/light context */
 	.modal .btn.primary {
-		background-color: #764ba2;
-		color: white;
+		background-color: #000;
+		color: #fff;
+		border-color: #000;
 	}
 	.modal .btn.primary:hover {
-		background-color: #673ab7;
+		background-color: #333;
+		border-color: #333;
 	}
 
 	.btn.secondary {
-		background-color: rgba(255, 255, 255, 0.2);
-		color: white;
-		backdrop-filter: blur(5px);
+		background-color: transparent;
+		color: #fff;
+		border: 1px solid rgba(255, 255, 255, 0.3);
 	}
 
 	.btn.secondary:hover {
-		background-color: rgba(255, 255, 255, 0.3);
+		border-color: #fff;
+		background-color: rgba(255, 255, 255, 0.05);
 	}
 
 	/* Secondary button in light context */
 	.modal .btn.secondary {
-		background-color: #e2e8f0;
-		color: #4a5568;
+		background-color: transparent;
+		color: #666;
+		border: 1px solid #ddd;
 	}
 	.modal .btn.secondary:hover {
-		background-color: #cbd5e0;
+		border-color: #000;
+		color: #000;
 	}
 
 	.btn.link {
-		background-color: #48bb78;
+		background-color: #000;
 		color: white;
+		border: 1px solid #000;
 	}
 	.btn.link:hover {
-		background-color: #38a169;
+		background-color: white;
+		color: #000;
 	}
 
 	.btn.info {
-		background-color: #4299e1;
-		color: white;
+		background-color: white;
+		color: #000;
+		border: 1px solid #ddd;
 	}
 	.btn.info:hover {
-		background-color: #3182ce;
+		border-color: #000;
 	}
 
 	.btn.text {
 		background: none;
-		color: #718096;
+		color: #666;
+		padding: 0.8rem 1.5rem;
 	}
 	.btn.text:hover {
-		color: #4a5568;
-		background-color: #f7fafc;
+		color: #000;
 	}
 
 	/* Modal */
@@ -455,54 +470,61 @@
 		left: 0;
 		width: 100%;
 		height: 100%;
-		background: rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(4px);
+		background: rgba(0, 0, 0, 0.8);
+		backdrop-filter: blur(5px);
 		display: flex;
 		justify-content: center;
 		align-items: center;
 		z-index: 1000;
-		animation: fadeIn 0.2s ease-out;
+		animation: fadeIn 0.3s ease-out;
 	}
 
 	.modal {
 		background: white;
-		padding: 2.5rem;
-		border-radius: 16px;
+		padding: 3rem;
+		border-radius: 0; /* Sharp corners */
 		max-width: 500px;
 		width: 90%;
-		box-shadow:
-			0 20px 25px -5px rgba(0, 0, 0, 0.1),
-			0 10px 10px -5px rgba(0, 0, 0, 0.04);
-		animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+		animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+		border: 1px solid #eee;
 	}
 
 	.modal h2 {
 		margin-top: 0;
-		color: #2d3748;
+		color: #000;
+		font-family: 'Bodoni Moda', serif;
+		font-weight: 500;
+		font-size: 1.8rem;
 	}
 
 	.modal-desc {
-		color: #718096;
-		margin-bottom: 1.5rem;
+		color: #666;
+		margin-bottom: 2rem;
+		font-size: 0.9rem;
+		line-height: 1.6;
 	}
 
 	.input-group {
-		margin-bottom: 2rem;
+		margin-bottom: 2.5rem;
 	}
 
 	.text-input {
 		width: 100%;
-		padding: 0.75rem 1rem;
-		border: 2px solid #e2e8f0;
-		border-radius: 8px;
+		padding: 1rem;
+		border: none;
+		border-bottom: 1px solid #ddd;
+		border-radius: 0;
 		font-size: 1rem;
-		transition: border-color 0.2s;
+		font-family: 'Bodoni Moda', serif;
+		transition: border-color 0.3s;
 		box-sizing: border-box;
+		background: transparent;
 	}
 
 	.text-input:focus {
 		outline: none;
-		border-color: #764ba2;
+		border-color: #000;
 	}
 
 	.modal-actions {
@@ -512,14 +534,15 @@
 	}
 
 	pre {
-		background: #f7fafc;
-		padding: 1rem;
-		border-radius: 8px;
+		background: #f8f8f8;
+		padding: 1.5rem;
+		border-radius: 0;
 		overflow-x: auto;
-		margin: 1rem 0;
+		margin: 1.5rem 0;
 		font-family: 'Fira Code', monospace;
-		border: 1px solid #e2e8f0;
-		font-size: 0.9rem;
+		border: 1px solid #eee;
+		font-size: 0.85rem;
+		color: #444;
 	}
 
 	@keyframes fadeIn {
@@ -533,7 +556,7 @@
 
 	@keyframes slideUp {
 		from {
-			transform: translateY(20px);
+			transform: translateY(30px);
 			opacity: 0;
 		}
 		to {
