@@ -17,35 +17,13 @@ const sendAnalytics = (eventType, projectId) => {
   const words = getWords();
   console.log(`[Logger] Choices found: ${choices.length}`);
 
-  // Enrich words data with full choice details
-  const enrichedWords = words.map(word => {
-    const choice = choices.find(c => c.id === word.id);
-    return {
-      id: word.id,
-      replaceText: word.replaceText,
-      title: choice ? choice.title : undefined,
-      text: choice ? choice.text : undefined
-    };
-  });
-
-  // Enrich multipleUseVariable with full choice details
-  const enrichedMultipleUse = choices
-    .filter(c => c.multipleUseVariable != 0)
-    .map(c => ({
-      id: c.id,
-      count: c.multipleUseVariable,
-      title: c.title,
-      text: c.text
-    }));
-
   const analyticsData = JSON.stringify({
     eventType: eventType,
     version: version,
     projectHash: getProjectHash(),
-
-    words: enrichedWords.length > 0 ? enrichedWords : undefined,
+    words: words,
     selectedChoices: choices.filter(c=>c.isActive).map(c=>c.id),
-    multipleUseVariable: enrichedMultipleUse.length > 0 ? enrichedMultipleUse : undefined,
+    multipleUseVariable: choices.filter(c=>c.multipleUseVariable!=0).map(c=>({id: c.id, count: c.multipleUseVariable})),
     timeOnPage: Date.now() - startTime,
     timestamp: new Date().toISOString(),
     
