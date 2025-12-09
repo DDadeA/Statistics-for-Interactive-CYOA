@@ -242,7 +242,8 @@
 		>
 	</div>
 
-	<StatisticsDashboard {logData} {projectData} {currentLang}></StatisticsDashboard>
+	<StatisticsDashboard {logData} {projectData} {currentLang} {progressMessage}
+	></StatisticsDashboard>
 </div>
 
 <style>
