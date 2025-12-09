@@ -26,7 +26,6 @@ export async function GET({ request, platform }: { request: Request; platform: A
 	}
 
 	const urlParams = new URL(request.url).searchParams;
-	const log_type = urlParams.get('log_type') || 1;
 
 	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
@@ -41,10 +40,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 	const project_id = project.results[0].project_id;
 
-	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ? AND log_type = ?', [
-		project_id,
-		log_type
-	]);
+	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
 
 	return new Response(JSON.stringify(result));
 }
@@ -75,25 +71,70 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		}
 
 		// -- // Data validation
-		// -- // Skip for now
-		// if (typeof body.data !== 'object') {
-		// 	return new Response('Bad Request: data must be an object', { status: 400 });
-		// }
-		if (typeof body.data !== 'string') {
-			body.data = JSON.stringify(body.data);
+		// [Validation 1] 입력값 정규화 및 파싱 확인
+		let payload;
+		let rawDataString;
+
+		if (typeof body.data === 'string') {
+			rawDataString = body.data;
+			try {
+				payload = JSON.parse(rawDataString);
+			} catch (e) {
+				return new Response('Invalid JSON format', { status: 400, headers: corsHeaders });
+			}
+		} else if (typeof body.data === 'object' && body.data !== null) {
+			payload = body.data;
+			rawDataString = JSON.stringify(payload);
+		} else {
+			return new Response('Invalid data type', { status: 400, headers: corsHeaders });
 		}
 
-		// Insert into D1
+		// [Validation 2] 용량 체크
+		const MAX_SIZE_BYTES = 50 * 1024;
+		if (rawDataString.length > MAX_SIZE_BYTES) {
+			return new Response('Payload too large (Limit: 10KB)', { status: 413, headers: corsHeaders });
+		}
+
+		// [Validation 3] 필수 필드 체크
+		const requiredFields = ['eventType', 'timestamp', 'currentURL'];
+		const missingFields = requiredFields.filter((field) => !payload[field]);
+
+		if (missingFields.length > 0) {
+			return new Response(`Missing required fields: ${missingFields.join(', ')}`, {
+				status: 400,
+				headers: corsHeaders
+			});
+		}
+
+		// ---------------------------------------------------------
+		// [DB Insert] 검증 통과 후 실행
+		// ---------------------------------------------------------
+
 		let result = await query(
 			platform,
-			'INSERT INTO logs (project_id, uid, data, created_at, log_type, data_hash) VALUES (?, ?, ?, ?, ?, ?)',
+			`INSERT OR IGNORE INTO logs (
+				project_id, 
+				uid, 
+				event_type, 
+				current_url, 
+				referrer, 
+				time_on_page, 
+				event_timestamp, 
+				data, 
+				data_hash, 
+				created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			[
 				body.projectId,
 				userIPHash,
-				body.data,
-				new Date().toISOString(),
-				1,
-				await getHash(body.data, platform.env.pepper)
+				payload.eventType, // 위에서 검증된 payload 사용
+				payload.currentURL,
+				payload.referrer || null, // referrer는 없을 수도 있으니 null 처리
+				payload.timeOnPage || 0, // 없으면 0 처리
+				payload.timestamp,
+				rawDataString, // 문자열로 변환된 원본 데이터
+				await getHash(rawDataString, platform.env.pepper), // 해시 생성
+				new Date().toISOString()
 			]
 		);
 
