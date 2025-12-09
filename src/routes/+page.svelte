@@ -31,6 +31,8 @@
 			if (res.ok) {
 				const data = await res.json();
 				adjustedTotalTime = data.adjustedTotalTime / 1000 / 60 / 60; // Convert ms to hours
+				// Round to 1 decimal place
+				adjustedTotalTime = Math.round(adjustedTotalTime * 10) / 10;
 			}
 		} catch (e) {
 			console.error('Failed to fetch count', e);
