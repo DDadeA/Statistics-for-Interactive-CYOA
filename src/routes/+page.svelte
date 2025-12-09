@@ -13,7 +13,7 @@
 	let selectedProject: Project | null = null;
 	let origin = '';
 
-	let totalCount = 0;
+	let adjustedTotalTime = 0;
 	let newProjectEmail = '';
 	let isCreating = false;
 
@@ -30,7 +30,7 @@
 			const res = await fetch('/api/count');
 			if (res.ok) {
 				const data = await res.json();
-				totalCount = data.count;
+				adjustedTotalTime = data.adjustedTotalTime / 1000 / 60 / 60; // Convert ms to hours
 			}
 		} catch (e) {
 			console.error('Failed to fetch count', e);
@@ -110,8 +110,8 @@
 			<p class="subtitle">Empower your interactive stories with real-time analytics.</p>
 
 			<div class="stat-container">
-				<div class="stat-value">{totalCount.toLocaleString()}</div>
-				<div class="stat-label">Players recorded</div>
+				<div class="stat-value">{adjustedTotalTime.toLocaleString()}</div>
+				<div class="stat-label">hours recorded</div>
 			</div>
 
 			<div class="hero-actions">
