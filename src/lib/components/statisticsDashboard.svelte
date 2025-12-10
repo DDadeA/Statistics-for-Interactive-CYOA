@@ -807,10 +807,18 @@
 							if (d.multipleUseVariable && d.multipleUseVariable.length > 0) {
 								d.multipleUseVariable.forEach((item) => {
 									if (!multipleUseMap[item.id]) {
-										multipleUseMap[item.id] = { id: item.id, totalCount: 0, occurrences: 0 };
+										multipleUseMap[item.id] = {
+											id: item.id,
+											totalCount: 0,
+											occurrences: 0,
+											distribution: {}
+										};
 									}
 									multipleUseMap[item.id].totalCount += item.count;
 									multipleUseMap[item.id].occurrences++;
+									const k = item.count;
+									multipleUseMap[item.id].distribution[k] =
+										(multipleUseMap[item.id].distribution[k] || 0) + 1;
 								});
 							}
 						} catch (e) {}
@@ -818,30 +826,46 @@
 					})()}
 				{/if}
 			{/each}
-			<div class="grid">
+			<div class="repeated-choices-list">
 				{#each Object.values(multipleUseMap).sort((a, b) => b.totalCount - a.totalCount) as item}
 					{@const obj = objectMap[item.id]}
-					<div class="card">
-						{#if obj}
-							{#if obj.image}
-								<img src={obj.image} alt={obj.title} />
+					{@const maxDist = Math.max(...Object.values(item.distribution))}
+					<div class="repeated-choice-row">
+						<div class="choice-header">
+							{#if obj && obj.image}
+								<img src={obj.image} alt={obj.title} class="choice-image" />
 							{/if}
-							<h3>{obj.title || item.id}</h3>
-							{#if obj.text}
-								<p class="text-sm text-gray">{obj.text}</p>
-							{/if}
-						{:else}
-							<h3>{item.id}</h3>
-						{/if}
-						<div class="card-footer">
-							<div>
-								<p class="text-xs text-gray">{t.totalSelections || 'Total Selections'}</p>
-								<span class="text-lg font-bold text-blue">{item.totalCount}</span>
+							<div class="choice-details">
+								<h3>{obj ? obj.title || item.id : item.id}</h3>
+								{#if obj && obj.text}
+									<p class="text-sm text-gray">{obj.text}</p>
+								{/if}
 							</div>
-							<div>
-								<p class="text-xs text-gray">{t.users || 'Users'}</p>
-								<span class="text-lg font-bold text-blue">{item.occurrences}</span>
+							<div class="choice-meta">
+								<div class="meta-item">
+									<span class="meta-label">{t.totalSelections || 'Total Selections'}</span>
+									<span class="meta-value">{item.totalCount}</span>
+								</div>
+								<div class="meta-item">
+									<span class="meta-label">{t.users || 'Users'}</span>
+									<span class="meta-value">{item.occurrences}</span>
+								</div>
 							</div>
+						</div>
+						<div class="choice-distribution">
+							{#each Object.entries(item.distribution).sort((a, b) => Number(a[0]) - Number(b[0])) as [count, userCount]}
+								<div class="dist-row">
+									<span class="dist-label">{count}x</span>
+									<div class="dist-bar-bg">
+										<div
+											class="dist-bar-fill"
+											style="width: {(userCount / maxDist) * 100}%"
+											title="{userCount} users selected this {count} times"
+										></div>
+									</div>
+									<span class="dist-count">{userCount}</span>
+								</div>
+							{/each}
 						</div>
 					</div>
 				{/each}
@@ -1376,6 +1400,95 @@
 	}
 	.multiple-use-container {
 		margin-bottom: 2rem;
+	}
+	.repeated-choices-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.repeated-choice-row {
+		background-color: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.choice-header {
+		display: flex;
+		gap: 1rem;
+		align-items: flex-start;
+	}
+	.choice-image {
+		width: 60px;
+		height: 60px;
+		object-fit: cover;
+		border-radius: 0.25rem;
+		flex-shrink: 0;
+	}
+	.choice-details {
+		flex: 1;
+	}
+	.choice-details h3 {
+		margin: 0 0 0.25rem 0;
+		font-size: 1.1rem;
+	}
+	.choice-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		min-width: 120px;
+		text-align: right;
+	}
+	.meta-item {
+		display: flex;
+		flex-direction: column;
+	}
+	.meta-label {
+		font-size: 0.75rem;
+		color: #6b7280;
+	}
+	.meta-value {
+		font-size: 1.25rem;
+		font-weight: bold;
+		color: #2563eb;
+	}
+	.choice-distribution {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding-left: 1rem;
+		border-left: 2px solid #e5e7eb;
+	}
+	.dist-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+	}
+	.dist-label {
+		width: 30px;
+		text-align: right;
+		color: #6b7280;
+		font-weight: 500;
+	}
+	.dist-bar-bg {
+		flex: 1;
+		height: 1.25rem;
+		background-color: #f3f4f6;
+		border-radius: 0.25rem;
+		overflow: hidden;
+	}
+	.dist-bar-fill {
+		height: 100%;
+		background-color: #3b82f6;
+		border-radius: 0.25rem;
+		min-width: 2px;
+	}
+	.dist-count {
+		width: 40px;
+		color: #6b7280;
 	}
 	.card-content {
 		background-color: #f9fafb;
