@@ -23,7 +23,13 @@
 	let generalStats: any = {};
 	let timeDistribution: { label: string; count: number; percent: number }[] = [];
 	let exitRowStats: { id: string; title: string; count: number; percent: number }[] = [];
-	let topCorrelations: { idA: string; idB: string; count: number; percent: number }[] = [];
+	let topCorrelations: {
+		idA: string;
+		idB: string;
+		count: number;
+		percent: number;
+		lift: number;
+	}[] = [];
 	let allKnownChoices: string[] = [];
 
 	// Reactive Statements for Data Processing
@@ -246,6 +252,7 @@
 
 		// 6. Correlations
 		if (filteredLogData.length > 0) {
+			const individualChoiceCounts: Record<string, number> = {};
 			const pairCounts: Record<string, number> = {};
 			let totalEntries = filteredLogData.length;
 
@@ -254,7 +261,10 @@
 					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
 					const choices = d.selectedChoices || [];
 					const sortedChoices = [...choices].sort();
+
 					for (let i = 0; i < sortedChoices.length; i++) {
+						individualChoiceCounts[sortedChoices[i]] =
+							(individualChoiceCounts[sortedChoices[i]] || 0) + 1;
 						for (let j = i + 1; j < sortedChoices.length; j++) {
 							const key = `${sortedChoices[i]}|${sortedChoices[j]}`;
 							pairCounts[key] = (pairCounts[key] || 0) + 1;
@@ -266,9 +276,15 @@
 			topCorrelations = Object.entries(pairCounts)
 				.map(([key, count]) => {
 					const [idA, idB] = key.split('|');
-					return { idA, idB, count, percent: (count / totalEntries) * 100 };
+					const percent = (count / totalEntries) * 100;
+					const probA = individualChoiceCounts[idA] / totalEntries;
+					const probB = individualChoiceCounts[idB] / totalEntries;
+
+					const lift = percent / (probA * probB) / 100;
+
+					return { idA, idB, count, percent, probA, probB, lift };
 				})
-				.sort((a, b) => b.count - a.count)
+				.sort((a, b) => b.lift - a.lift)
 				.slice(0, 10);
 		} else {
 			topCorrelations = [];
@@ -698,6 +714,7 @@
 					<span title={corr.idB}>{objB ? objB.title || corr.idB : corr.idB}</span>
 				</div>
 				<div class="correlation-stat">
+					<span class="lift">Lift: {corr.lift.toFixed(2)}</span>
 					<span class="count">{corr.count}</span>
 					<span class="percent">({corr.percent.toFixed(1)}%)</span>
 				</div>
