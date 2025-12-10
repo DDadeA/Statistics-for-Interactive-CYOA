@@ -25,6 +25,7 @@
 	let exitRowStats: { id: string; title: string; count: number; percent: number }[] = [];
 	let topCorrelations: correlationObject[] = [];
 	let allKnownChoices: string[] = [];
+	let original_url = '';
 
 	// let currentURL = '';
 	// try {
@@ -36,8 +37,6 @@
 	// 	alert(t.errorParsing);
 	// 	return;
 	// }
-
-	const original_url = logData.length > 0 && logData[0].current_url ? logData[0].current_url : '';
 
 	interface correlationObject {
 		idA: string;
@@ -56,6 +55,7 @@
 	$: {
 		t; // Dependency for language switching
 		let data = [...logData];
+		original_url = logData.length > 0 && logData[0].current_url ? logData[0].current_url : '';
 
 		// 1. Filter by Time Range
 		const now = new Date();
@@ -1245,6 +1245,13 @@
 	.font-normal {
 		font-weight: normal;
 	}
+	#correlations {
+		margin-bottom: 2rem;
+	}
+	#correlationSort {
+		margin-bottom: 1rem;
+	}
+
 	.chart-container {
 		background-color: white;
 		border: 1px solid #e5e7eb;
