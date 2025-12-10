@@ -3,6 +3,7 @@
 	import { translations } from '$lib/translations';
 	import type { LogEntry } from '$lib/types';
 	import StatisticsDashboard from '$lib/components/statisticsDashboard.svelte';
+	import { finderUrl, proxyUrl } from '$lib/utils';
 
 	let logData: LogEntry[] = [];
 	let secretKey = '';
@@ -11,8 +12,6 @@
 	// Project Data Handling
 	let projectData: any = null;
 	let progressMessage = '';
-	const finderUrl = 'https://icc-project-finder.aseli4488.workers.dev/?path=';
-	const proxyUrl = 'https://corsproxy.io/?';
 
 	$: t = translations[currentLang as keyof typeof translations];
 

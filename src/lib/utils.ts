@@ -1,3 +1,6 @@
+export const finderUrl = 'https://icc-project-finder.aseli4488.workers.dev/?path=';
+export const proxyUrl = 'https://corsproxy.io/?';
+
 export const getHash = async (secret_key: string, pepper: string) => {
 	// Ensure secret_key is a string
 	if (typeof secret_key !== 'string') {
@@ -20,6 +23,35 @@ export const getHash = async (secret_key: string, pepper: string) => {
 				.join('');
 		});
 };
+
+export async function fetchWithProgress(
+	url: string,
+	onProgress: (loaded: number, total: number) => void
+) {
+	const response = await fetch(url);
+	if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+	const contentLength = response.headers.get('content-length');
+	const total = contentLength ? parseInt(contentLength, 10) : 0;
+	let loaded = 0;
+
+	const reader = response.body?.getReader();
+	const chunks = [];
+
+	if (reader) {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(value);
+			loaded += value.length;
+			if (onProgress) onProgress(loaded, total);
+		}
+		const blob = new Blob(chunks);
+		return JSON.parse(await blob.text());
+	} else {
+		return response.json();
+	}
+}
 
 export const query = async (platform: App.Platform, query: string, params?: any[]) => {
 	// @ts-ignore
