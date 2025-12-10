@@ -18,7 +18,13 @@
 
 	$: {
 		if (selectedProjectId !== '') {
-			loadData();
+			loadData().then(async () => {
+				// After loading data, fetch project path from data.projects
+				const project = data.projects.find((proj) => proj.project_id === selectedProjectId);
+				if (project) {
+					await main(project.sample_url);
+				}
+			});
 		}
 	}
 
@@ -29,7 +35,7 @@
 	async function loadData() {
 		if (!selectedProjectId) return;
 
-		let result = await fetch(`/api/admin/log?project_id=${selectedProjectId}`, {
+		let result = await fetch(`/admin/api/log?project_id=${selectedProjectId}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json'
