@@ -23,14 +23,21 @@
 	let generalStats: any = {};
 	let timeDistribution: { label: string; count: number; percent: number }[] = [];
 	let exitRowStats: { id: string; title: string; count: number; percent: number }[] = [];
-	let topCorrelations: {
+	let topCorrelations: correlationObject[] = [];
+	let allKnownChoices: string[] = [];
+
+	interface correlationObject {
 		idA: string;
 		idB: string;
 		count: number;
 		percent: number;
+		probA: number;
+		probB: number;
 		lift: number;
-	}[] = [];
-	let allKnownChoices: string[] = [];
+	}
+
+	let correlationSortFunction: (a: correlationObject, b: correlationObject) => number = (a, b) =>
+		b.count * b.lift - a.count * a.lift;
 
 	// Reactive Statements for Data Processing
 	$: {
@@ -284,8 +291,7 @@
 
 					return { idA, idB, count, percent, probA, probB, lift };
 				})
-				.sort((a, b) => b.lift - a.lift)
-				.slice(0, 10);
+				.sort(correlationSortFunction);
 		} else {
 			topCorrelations = [];
 		}
@@ -703,8 +709,32 @@
 
 	<!-- Choice Correlations -->
 	<h2 id="correlations">{t.choiceCorrelations}</h2>
+	<select
+		id="correlationSort"
+		bind:value={correlationSortFunction}
+		on:change={() => {
+			// Trigger re-calculation
+			topCorrelations = [...topCorrelations].sort(correlationSortFunction);
+		}}
+	>
+		<option
+			value={(a: correlationObject, b: correlationObject) => b.count * b.lift - a.count * a.lift}
+			>Lift*count</option
+		>
+		<option value={(a: correlationObject, b: correlationObject) => b.lift - a.lift}
+			>Lift only</option
+		>
+
+		<option value={(a: correlationObject, b: correlationObject) => b.percent - a.percent}
+			>percent only</option
+		>
+		<option value={(a: correlationObject, b: correlationObject) => b.count - a.count}
+			>count only</option
+		>
+	</select>
+
 	<div class="correlation-grid">
-		{#each topCorrelations as corr}
+		{#each topCorrelations.slice(0, 10) as corr}
 			{@const objA = objectMap[corr.idA]}
 			{@const objB = objectMap[corr.idB]}
 			<div class="correlation-card">
