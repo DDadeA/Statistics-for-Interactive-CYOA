@@ -26,6 +26,19 @@
 	let topCorrelations: correlationObject[] = [];
 	let allKnownChoices: string[] = [];
 
+	// let currentURL = '';
+	// try {
+	// 	const parsedData =
+	// 		typeof latestEntry.data === 'string' ? JSON.parse(latestEntry.data) : latestEntry.data;
+	// 	currentURL = parsedData.currentURL;
+	// } catch (e) {
+	// 	console.error('Error parsing log data', e);
+	// 	alert(t.errorParsing);
+	// 	return;
+	// }
+
+	const original_url = logData.length > 0 && logData[0].current_url ? logData[0].current_url : '';
+
 	interface correlationObject {
 		idA: string;
 		idB: string;
@@ -863,7 +876,13 @@
 					<div class="repeated-choice-row">
 						<div class="choice-header">
 							{#if obj && obj.image}
-								<img src={obj.image} alt={obj.title} class="choice-image" />
+								<img
+									src={obj.image.startsWith('http') || obj.image.startsWith('data:')
+										? obj.image
+										: original_url + obj.image}
+									alt={obj.title}
+									class="choice-image"
+								/>
 							{/if}
 							<div class="choice-details">
 								<h3>{obj ? obj.title || item.id : item.id}</h3>
@@ -992,7 +1011,7 @@
 							<img
 								src={obj.image.startsWith('http') || obj.image.startsWith('data:')
 									? obj.image
-									: `https://corsproxy.io/?${encodeURIComponent(obj.image)}`}
+									: `${original_url}${obj.image}`}
 								alt={obj.title}
 							/>
 						{/if}
