@@ -116,6 +116,14 @@
 			return;
 		}
 
+		// Remove parameters from URL
+		const urlObj = new URL(currentURL);
+		urlObj.search = '';
+		currentURL = urlObj.toString();
+
+		// Remove # fragment
+		currentURL = currentURL.split('#')[0];
+
 		if (!currentURL) {
 			alert(t.noCurrentUrl);
 			return;

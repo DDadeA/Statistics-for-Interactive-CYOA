@@ -22,7 +22,17 @@
 				// After loading data, fetch project path from data.projects
 				const project = data.projects.find((proj) => proj.project_id === selectedProjectId);
 				if (project) {
-					await main(project.sample_url);
+					let currentURL = project.sample_url;
+
+					// Remove parameters from URL
+					const urlObj = new URL(currentURL);
+					urlObj.search = '';
+					currentURL = urlObj.toString();
+
+					// Remove # fragment
+					currentURL = currentURL.split('#')[0];
+
+					await main(currentURL);
 				}
 			});
 		}

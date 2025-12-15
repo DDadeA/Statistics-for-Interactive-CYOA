@@ -1,4 +1,4 @@
-const version = "0.0.3";
+const version = "0.0.4";
 let startTime = Date.now();
 let initialized = false;
 
@@ -120,9 +120,8 @@ function getProjectHash() {
     const mergedTitles = choices.map(c => c.title).join('|');
     const mergedTexts = choices.map(c => c.text).join('|');
     const mergedRequireds = choices.map(c => c.requireds.toString()).join('|');
-    const mergedScores = choices.map(c => JSON.stringify(c.scores)).join('|');
 
-    const dataToHash = mergedIds + '||' + mergedTitles + '||' + mergedTexts + '||' + mergedRequireds + '||' + mergedScores;
+    const dataToHash = mergedIds + '||' + mergedTitles + '||' + mergedTexts + '||' + mergedRequireds;
 
     return hashString(dataToHash);
 }
