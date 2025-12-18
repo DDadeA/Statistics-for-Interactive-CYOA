@@ -103,18 +103,24 @@
 		const sortedData = [...logData].sort(
 			(a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
 		);
-		const latestEntry = sortedData[0];
 
-		let currentURL = '';
-		try {
-			const parsedData =
-				typeof latestEntry.data === 'string' ? JSON.parse(latestEntry.data) : latestEntry.data;
-			currentURL = parsedData.currentURL;
-		} catch (e) {
-			console.error('Error parsing log data', e);
-			alert(t.errorParsing);
-			return;
+		let urlCount: { [key: string]: number } = {};
+
+		// const latestEntry = sortedData[0];
+		for (let entry of sortedData) {
+			const parsedData = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+			let entryURL = parsedData.currentURL;
+			if (entryURL in urlCount) {
+				urlCount[entryURL]++;
+			} else {
+				urlCount[entryURL] = 1;
+			}
 		}
+
+		console.log('URL counts:', urlCount);
+
+		// set Current URL from majority if multiple found
+		let currentURL = Object.keys(urlCount).reduce((a, b) => (urlCount[a] > urlCount[b] ? a : b));
 
 		// Remove parameters from URL
 		const urlObj = new URL(currentURL);
