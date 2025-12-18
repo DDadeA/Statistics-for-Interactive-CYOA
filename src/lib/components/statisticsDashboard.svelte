@@ -27,17 +27,6 @@
 	let allKnownChoices: string[] = [];
 	let original_url = '';
 
-	// let currentURL = '';
-	// try {
-	// 	const parsedData =
-	// 		typeof latestEntry.data === 'string' ? JSON.parse(latestEntry.data) : latestEntry.data;
-	// 	currentURL = parsedData.currentURL;
-	// } catch (e) {
-	// 	console.error('Error parsing log data', e);
-	// 	alert(t.errorParsing);
-	// 	return;
-	// }
-
 	interface correlationObject {
 		idA: string;
 		idB: string;
@@ -48,8 +37,29 @@
 		lift: number;
 	}
 
-	let correlationSortFunction: (a: correlationObject, b: correlationObject) => number = (a, b) =>
-		b.count * b.lift - a.count * a.lift;
+	let correlationSortFunction: (a: correlationObject, b: correlationObject) => number = (
+		a: correlationObject,
+		b: correlationObject
+	) => calcLogWeightedLift(b) - calcLogWeightedLift(a);
+
+	const getProbAB = (obj: correlationObject) => obj.percent / 100;
+
+	const calcJaccard = (obj: correlationObject) => {
+		const pAB = getProbAB(obj);
+		// P(A∪B) = P(A) + P(B) - P(A∩B)
+		const union = obj.probA + obj.probB - pAB;
+		return union <= 0 ? 0 : pAB / union;
+	};
+
+	const calcCosine = (obj: correlationObject) => {
+		const pAB = getProbAB(obj);
+		const denominator = Math.sqrt(obj.probA * obj.probB);
+		return denominator <= 0 ? 0 : pAB / denominator;
+	};
+
+	const calcLogWeightedLift = (obj: correlationObject) => {
+		return obj.lift * Math.log(obj.count + 1);
+	};
 
 	// Reactive Statements for Data Processing
 	$: {
@@ -731,19 +741,38 @@
 		}}
 	>
 		<option
-			value={(a: correlationObject, b: correlationObject) => b.count * b.lift - a.count * a.lift}
-			>Lift*count</option
+			value={(a: correlationObject, b: correlationObject) =>
+				calcLogWeightedLift(b) - calcLogWeightedLift(a)}
+			selected
 		>
-		<option value={(a: correlationObject, b: correlationObject) => b.lift - a.lift}
-			>Lift only</option
-		>
+			Log-Weighted Lift (Balanced Heuristic)
+		</option>
 
-		<option value={(a: correlationObject, b: correlationObject) => b.percent - a.percent}
-			>percent only</option
+		<option value={(a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)}>
+			Jaccard Index (Intersection over Union)
+		</option>
+
+		<option value={(a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)}>
+			Cosine Similarity (Ochiai Coefficient)
+		</option>
+
+		<option
+			value={(a: correlationObject, b: correlationObject) => b.count * b.lift - a.count * a.lift}
 		>
-		<option value={(a: correlationObject, b: correlationObject) => b.count - a.count}
-			>count only</option
-		>
+			Lift-Weighted Frequency (Popularity Biased)
+		</option>
+
+		<option value={(a: correlationObject, b: correlationObject) => b.lift - a.lift}>
+			Lift (Interest Measure)
+		</option>
+
+		<option value={(a: correlationObject, b: correlationObject) => b.percent - a.percent}>
+			Support (%)
+		</option>
+
+		<option value={(a: correlationObject, b: correlationObject) => b.count - a.count}>
+			Support (Frequency)
+		</option>
 	</select>
 
 	<div class="correlation-grid">
