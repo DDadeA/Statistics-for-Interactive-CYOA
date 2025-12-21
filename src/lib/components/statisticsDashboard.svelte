@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { translations } from '$lib/translations';
+	import type { LogEntry, correlationObject } from '$lib/types';
 
 	// 1. Svelte 5 Props
 	let { logData = [], projectData = null, progressMessage = '', currentLang = 'en' } = $props();
@@ -12,9 +13,38 @@
 	let isLogarithmicTime = $state(false);
 
 	// Correlation Sorting Function State
-	let correlationSortFunction = $state(
-		(a: any, b: any) => calcLogWeightedLift(b) - calcLogWeightedLift(a)
-	);
+	const correlationSortOptions = [
+		{
+			label: 'Log-Weighted Lift (Balanced Heuristic)',
+			value: (a: correlationObject, b: correlationObject) =>
+				calcLogWeightedLift(b) - calcLogWeightedLift(a)
+		},
+		{
+			label: 'Jaccard Index (Intersection over Union)',
+			value: (a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)
+		},
+		{
+			label: 'Cosine Similarity',
+			value: (a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)
+		},
+		{
+			label: 'Frequency-weighted Lift',
+			value: (a: correlationObject, b: correlationObject) => b.lift * b.count - a.lift * a.count
+		},
+		{
+			label: 'Lift (Basic Probability Ratio)',
+			value: (a: correlationObject, b: correlationObject) => b.lift - a.lift
+		},
+		{
+			label: 'Co-Occurrence Percentage',
+			value: (a: correlationObject, b: correlationObject) => b.percent - a.percent
+		},
+		{
+			label: 'Co-Occurrence Count',
+			value: (a: correlationObject, b: correlationObject) => b.count - a.count
+		}
+	];
+	let correlationSortFunction = $state(correlationSortOptions[0].value);
 
 	// 3. Derived Helpers
 	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
@@ -28,7 +58,7 @@
 
 	// Step A: Parse JSON once ($derived automatically caches this)
 	// This prevents JSON.parse from running thousands of times during renders.
-	let parsedLogData = $derived(
+	let parsedLogData: LogEntry[] = $derived(
 		logData.map((entry) => {
 			let d: any = {};
 			try {
@@ -39,6 +69,7 @@
 
 			return {
 				...entry,
+				data: null, // Free up memory
 				parsedData: d, // Store parsed data
 				timestamp: new Date(entry.created_at).getTime() // Store numeric timestamp for fast filtering
 			};
@@ -47,6 +78,7 @@
 
 	// Step B: Apply Filters (Time, Unique User, Choice)
 	let filteredLogData = $derived.by(() => {
+		console.log('(B) Applying filters to log data...');
 		let data = parsedLogData;
 
 		// 1. Time Filter (Numeric comparison is faster)
@@ -56,7 +88,7 @@
 			if (timeRange === '24h') cutoff -= 24 * 60 * 60 * 1000;
 			if (timeRange === '7d') cutoff -= 7 * 24 * 60 * 60 * 1000;
 			if (timeRange === '30d') cutoff -= 30 * 24 * 60 * 60 * 1000;
-			data = data.filter((e) => e.timestamp >= cutoff);
+			data = data.filter((e) => e.timestamp ?? 0 >= cutoff);
 		}
 
 		// 2. Unique Users
@@ -64,7 +96,7 @@
 			const latestEntries = new Map();
 			for (const entry of data) {
 				const existing = latestEntries.get(entry.uid);
-				if (!existing || entry.timestamp > existing.timestamp) {
+				if (!existing || (entry.timestamp ?? 0) > (existing.timestamp ?? 0)) {
 					latestEntries.set(entry.uid, entry);
 				}
 			}
@@ -84,8 +116,8 @@
 	});
 
 	// Step C: Global Choice Counts (Lookup Table)
-	// Solves the O(N^2) problem by counting everything once in O(N).
 	let statisticsCounts = $derived.by(() => {
+		console.log('(C) Calculating global statistics counts...');
 		const counts: Record<string, number> = {};
 		for (const entry of filteredLogData) {
 			const choices = entry.parsedData.selectedChoices;
@@ -100,6 +132,7 @@
 
 	// Step D: Object Map for Title/Image Lookups
 	let objectMap = $derived.by(() => {
+		console.log('(D) Building object map...');
 		const map: Record<string, any> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -115,6 +148,7 @@
 
 	// Step E: Object ID to Row ID Map
 	let objectToRowMap = $derived.by(() => {
+		console.log('(E) Building object to row map...');
 		const map: Record<string, { id: string; title: string }> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -134,10 +168,11 @@
 
 	// --- 1. Visitor Graph ---
 	let visitorGraphData = $derived.by(() => {
+		console.log('(1) Calculating visitor graph...');
 		const groupedData: Record<string, number> = {};
 
 		for (const entry of filteredLogData) {
-			const date = new Date(entry.timestamp);
+			const date = new Date(entry.timestamp ?? 0);
 			let key = '';
 
 			if (timeUnit === 'hour') {
@@ -177,6 +212,7 @@
 
 	// --- 2. General Stats & Time Distribution ---
 	let generalData = $derived.by(() => {
+		console.log('(2) Calculating general stats...');
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
@@ -279,6 +315,8 @@
 
 	// --- 3. Correlations (Optimized) ---
 	let topCorrelations = $derived.by(() => {
+		console.log('(3) Updating correlations...');
+
 		if (filteredLogData.length === 0) return [];
 
 		const pairCounts: Record<string, number> = {};
@@ -320,6 +358,7 @@
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
+		console.log('(4) Calculating row statistics...');
 		if (!projectData?.rows) return [];
 
 		return projectData.rows.map((row: any) => {
@@ -353,6 +392,7 @@
 
 	// --- 5. Exit Statistics ---
 	let exitRowStats = $derived.by(() => {
+		console.log('(5) Calculating exit row statistics...');
 		if (filteredLogData.length === 0 || Object.keys(objectToRowMap).length === 0) return [];
 
 		const exitCounts: Record<string, number> = {};
@@ -385,6 +425,7 @@
 
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
+		console.log('(6) Calculating user-entered word statistics...');
 		const wordMap = new Map();
 		for (const entry of filteredLogData) {
 			const words = entry.parsedData.words;
@@ -405,6 +446,7 @@
 
 	// --- 7. Repeated Choices (Moved out of HTML) ---
 	let repeatedChoiceStats = $derived.by(() => {
+		console.log('(7) Calculating repeated choice statistics...');
 		const multiMap: Record<string, any> = {};
 		for (const entry of filteredLogData) {
 			const vars = entry.parsedData.multipleUseVariable;
@@ -443,19 +485,19 @@
 	}
 
 	// Correlation Helper Functions
-	const getProbAB = (obj: any) => obj.percent / 100;
+	const getProbAB = (obj: correlationObject) => obj.percent / 100;
 
-	const calcJaccard = (obj: any) => {
+	const calcJaccard = (obj: correlationObject) => {
 		const pAB = getProbAB(obj);
 		const union = obj.probA + obj.probB - pAB;
 		return union <= 0 ? 0 : pAB / union;
 	};
-	const calcCosine = (obj: any) => {
+	const calcCosine = (obj: correlationObject) => {
 		const pAB = getProbAB(obj);
 		const denom = Math.sqrt(obj.probA * obj.probB);
 		return denom <= 0 ? 0 : pAB / denom;
 	};
-	const calcLogWeightedLift = (obj: any) => {
+	const calcLogWeightedLift = (obj: correlationObject) => {
 		return obj.lift * Math.log(obj.count + 1);
 	};
 </script>
@@ -725,21 +767,38 @@
 	<!-- Choice Correlations -->
 	<h2 id="correlations">{t.choiceCorrelations}</h2>
 	<select id="correlationSort" bind:value={correlationSortFunction}>
-		<option value={(a, b) => calcLogWeightedLift(b) - calcLogWeightedLift(a)} selected>
+		{#each correlationSortOptions as option}
+			<option value={option.value} selected={option.value == correlationSortOptions[0].value}
+				>{option.label}</option
+			>
+		{/each}
+		<!-- <option
+			value={(a: correlationObject, b: correlationObject) =>
+				calcLogWeightedLift(b) - calcLogWeightedLift(a)}
+			selected
+		>
 			Log-Weighted Lift (Balanced Heuristic)
 		</option>
-		<option value={(a, b) => calcJaccard(b) - calcJaccard(a)}>
+		<option value={(a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)}>
 			Jaccard Index (Intersection over Union)
 		</option>
-		<option value={(a, b) => calcCosine(b) - calcCosine(a)}>
+		<option value={(a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)}>
 			Cosine Similarity (Ochiai Coefficient)
 		</option>
-		<option value={(a, b) => b.count * b.lift - a.count * a.lift}>
+		<option
+			value={(a: correlationObject, b: correlationObject) => b.count * b.lift - a.count * a.lift}
+		>
 			Lift-Weighted Frequency (Popularity Biased)
 		</option>
-		<option value={(a, b) => b.lift - a.lift}>Lift (Interest Measure)</option>
-		<option value={(a, b) => b.percent - a.percent}>Support (%)</option>
-		<option value={(a, b) => b.count - a.count}>Support (Frequency)</option>
+		<option value={(a: correlationObject, b: correlationObject) => b.lift - a.lift}
+			>Lift (Interest Measure)</option
+		>
+		<option value={(a: correlationObject, b: correlationObject) => b.percent - a.percent}
+			>Support (%)</option
+		>
+		<option value={(a: correlationObject, b: correlationObject) => b.count - a.count}
+			>Support (Frequency)</option
+		> -->
 	</select>
 
 	<div class="correlation-grid">
