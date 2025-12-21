@@ -1,5 +1,6 @@
 import { query, getHash } from '$lib/utils';
 import type { RequestHandler } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 
 export const OPTIONS: RequestHandler = async ({ request }) => {
 	const origin = request.headers.get('Origin');
@@ -42,7 +43,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
 
-	return new Response(JSON.stringify(result));
+	return json(result);
 }
 
 // Post - no authentication
@@ -90,9 +91,12 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		}
 
 		// [Validation 2] 용량 체크
-		const MAX_SIZE_BYTES = 50 * 1024;
+		const MAX_SIZE_BYTES = 200 * 1024;
 		if (rawDataString.length > MAX_SIZE_BYTES) {
-			return new Response('Payload too large (Limit: 10KB)', { status: 413, headers: corsHeaders });
+			return new Response('Payload too large (Limit: 200KB)', {
+				status: 413,
+				headers: corsHeaders
+			});
 		}
 
 		// [Validation 3] 필수 필드 체크

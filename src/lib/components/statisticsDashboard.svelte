@@ -1252,6 +1252,17 @@
 		font-weight: bold;
 		color: #2563eb;
 	}
+	.number-input {
+		width: 60px;
+		padding: 0.25rem;
+		border: 1px solid #d1d5db;
+		border-radius: 0.375rem;
+		background-color: white;
+		font-size: 0.875rem;
+		color: #111827;
+		cursor: pointer;
+		margin-left: 1rem;
+	}
 	.correlation-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
