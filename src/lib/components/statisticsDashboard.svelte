@@ -63,6 +63,12 @@
 			let d: any = {};
 			try {
 				d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+
+				// Optimization: Pre-sort choices once here to avoid sorting in the O(N) loop later
+				if (d?.selectedChoices?.length) {
+					// Copy to avoid mutating original if it was passed as object
+					d.selectedChoices = [...d.selectedChoices].sort();
+				}
 			} catch (e) {
 				/* ignore */
 			}
@@ -94,17 +100,18 @@
 		// 2. Unique Users
 		if (uniqueUsersOnly) {
 			const latestEntries = new Map();
+			let uidSet = new Set();
 			for (const entry of data) {
-				const existing = latestEntries.get(entry.uid);
-				if (!existing || (entry.timestamp ?? 0) > (existing.timestamp ?? 0)) {
+				if (!uidSet.has(entry.uid)) {
 					latestEntries.set(entry.uid, entry);
+					uidSet.add(entry.uid);
 				}
 			}
 			data = Array.from(latestEntries.values());
 		}
 
 		// 3. Filter by Choice
-		if (selectedFilterChoice) {
+		if (selectedFilterChoice != '') {
 			data = data.filter(
 				(entry) =>
 					entry.parsedData.selectedChoices &&
@@ -315,46 +322,45 @@
 
 	// --- 3. Correlations (Optimized) ---
 	let topCorrelations = $derived.by(() => {
-		console.log('(3) Updating correlations...');
+		console.log('(3-1) Updating correlations...');
 
 		if (filteredLogData.length === 0) return [];
 
-		const pairCounts: Record<string, number> = {};
+		const pairCounts = new Map<string, number>();
 		const totalEntries = filteredLogData.length;
 
 		for (const entry of filteredLogData) {
 			const choices = entry.parsedData.selectedChoices;
 			if (!choices || choices.length < 2) continue;
 
-			// Copy and sort (prevent mutation)
-			const sorted = [...choices].sort();
-			const len = sorted.length;
+			// Choices are already sorted in parsedLogData (Step A)
+			const len = choices.length;
 
 			// O(Choices^2) per user, but O(N * C^2) total.
-			// C is usually small (<50), so this is acceptable compared to parsing JSON every time.
 			for (let i = 0; i < len; i++) {
+				const choiceA = choices[i];
 				for (let j = i + 1; j < len; j++) {
-					const key = `${sorted[i]}|${sorted[j]}`;
-					pairCounts[key] = (pairCounts[key] || 0) + 1;
+					const key = `${choiceA}|${choices[j]}`;
+					pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
 				}
 			}
 		}
 
-		return Object.entries(pairCounts)
-			.map(([key, count]) => {
-				const [idA, idB] = key.split('|');
-				const countA = statisticsCounts[idA] || 0;
-				const countB = statisticsCounts[idB] || 0;
+		return Array.from(pairCounts.entries()).map(([key, count]) => {
+			const [idA, idB] = key.split('|');
+			const countA = statisticsCounts[idA] || 0;
+			const countB = statisticsCounts[idB] || 0;
 
-				const percent = (count / totalEntries) * 100;
-				const probA = countA / totalEntries;
-				const probB = countB / totalEntries;
-				const lift = probA * probB > 0 ? percent / 100 / (probA * probB) : 0;
+			const percent = (count / totalEntries) * 100;
+			const probA = countA / totalEntries;
+			const probB = countB / totalEntries;
+			const lift = probA * probB > 0 ? percent / 100 / (probA * probB) : 0;
 
-				return { idA, idB, count, percent, probA, probB, lift };
-			})
-			.sort(correlationSortFunction);
+			return { idA, idB, count, percent, probA, probB, lift };
+		});
 	});
+
+	let sortedTopCorrelations = $derived(topCorrelations.sort(correlationSortFunction));
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
@@ -772,37 +778,10 @@
 				>{option.label}</option
 			>
 		{/each}
-		<!-- <option
-			value={(a: correlationObject, b: correlationObject) =>
-				calcLogWeightedLift(b) - calcLogWeightedLift(a)}
-			selected
-		>
-			Log-Weighted Lift (Balanced Heuristic)
-		</option>
-		<option value={(a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)}>
-			Jaccard Index (Intersection over Union)
-		</option>
-		<option value={(a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)}>
-			Cosine Similarity (Ochiai Coefficient)
-		</option>
-		<option
-			value={(a: correlationObject, b: correlationObject) => b.count * b.lift - a.count * a.lift}
-		>
-			Lift-Weighted Frequency (Popularity Biased)
-		</option>
-		<option value={(a: correlationObject, b: correlationObject) => b.lift - a.lift}
-			>Lift (Interest Measure)</option
-		>
-		<option value={(a: correlationObject, b: correlationObject) => b.percent - a.percent}
-			>Support (%)</option
-		>
-		<option value={(a: correlationObject, b: correlationObject) => b.count - a.count}
-			>Support (Frequency)</option
-		> -->
 	</select>
 
 	<div class="correlation-grid">
-		{#each topCorrelations.slice(0, 10) as corr}
+		{#each sortedTopCorrelations.slice(0, Math.floor(sortedTopCorrelations.length)) as corr}
 			{@const objA = objectMap[corr.idA]}
 			{@const objB = objectMap[corr.idB]}
 			<div class="correlation-card">
@@ -818,7 +797,7 @@
 				</div>
 			</div>
 		{/each}
-		{#if topCorrelations.length === 0}
+		{#if sortedTopCorrelations.length === 0}
 			<p class="text-gray italic">{t.noCorrelations}</p>
 		{/if}
 	</div>
