@@ -363,6 +363,7 @@
 	});
 
 	let sortedTopCorrelations = $derived(topCorrelations.sort(correlationSortFunction));
+	let slicedSortedTopCorrelations = $derived(sortedTopCorrelations.slice(0, correlationLimit));
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
@@ -781,10 +782,17 @@
 			>
 		{/each}
 	</select>
-	<input type="number" min="1" max="100" bind:value={correlationLimit} class="number-input" />
+	<input
+		type="range"
+		min="1"
+		max="100"
+		step="1"
+		bind:value={correlationLimit}
+		class="number-input"
+	/>
 
 	<div class="correlation-grid">
-		{#each sortedTopCorrelations.slice(0, correlationLimit) as corr}
+		{#each slicedSortedTopCorrelations as corr}
 			{@const objA = objectMap[corr.idA]}
 			{@const objB = objectMap[corr.idB]}
 			<div class="correlation-card">
@@ -800,7 +808,7 @@
 				</div>
 			</div>
 		{/each}
-		{#if sortedTopCorrelations.length === 0}
+		{#if slicedSortedTopCorrelations.length === 0}
 			<p class="text-gray italic">{t.noCorrelations}</p>
 		{/if}
 	</div>
