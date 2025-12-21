@@ -362,7 +362,15 @@
 		});
 	});
 
-	let sortedTopCorrelations = $derived(topCorrelations.sort(correlationSortFunction));
+	let sortedTopCorrelations = $derived.by(() => {
+		console.log('(3-2) Sorting correlations...');
+
+		// Make apprent correlationSortFunction reactive.
+		console.log('\t Using correlation sort function:', correlationSortFunction.toString());
+
+		return topCorrelations.sort(correlationSortFunction);
+	});
+
 	let slicedSortedTopCorrelations = $derived(sortedTopCorrelations.slice(0, correlationLimit));
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
