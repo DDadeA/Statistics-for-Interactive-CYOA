@@ -46,7 +46,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 		}
 
 		// [Validation 2] 용량 체크
-		const MAX_SIZE_BYTES = 50 * 1024;
+		const MAX_SIZE_BYTES = 200 * 1024;
 		if (rawDataString.length > MAX_SIZE_BYTES) {
 			return new Response('Payload too large', { status: 413, headers: corsHeaders });
 		}

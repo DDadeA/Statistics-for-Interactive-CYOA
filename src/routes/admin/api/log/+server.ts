@@ -1,4 +1,5 @@
 import { query } from '$lib/utils';
+import { json } from '@sveltejs/kit';
 
 // Get
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
@@ -10,5 +11,5 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
 
-	return new Response(JSON.stringify(result));
+	return json(result);
 }

@@ -141,6 +141,8 @@
 
 	async function loadData(log_type: number = 1) {
 		if (!secretKey) return;
+
+		setProgress(t.loadingStats);
 		// Handle the form submission logic here
 		// console.log('Secret Key submitted:', secretKey);
 		let result = await fetch(`/api/log?log_type=${log_type}`, {
@@ -151,6 +153,8 @@
 			}
 		}).then((res) => res.json());
 
+		setProgress(t.statsLoaded);
+		setTimeout(() => setProgress(''), 3000);
 		console.log(result);
 		logData = result.results || [];
 		localStorage.setItem(`statistics_data_${secretKey}`, JSON.stringify(logData));

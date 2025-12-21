@@ -6,8 +6,21 @@ interface LogEntry {
 	referrer: string;
 	time_on_page: number;
 	event_timestamp: string;
-	data: any;
+	data: any | null;
 	data_hash: string;
 	created_at: string;
+
+	parsedData?: any; // processed version of data
+	timestamp?: number; // Optional field for numeric timestamp
 }
-export type { LogEntry };
+
+interface correlationObject {
+	idA: string;
+	idB: string;
+	count: number;
+	percent: number;
+	probA: number;
+	probB: number;
+	lift: number;
+}
+export type { LogEntry, correlationObject };

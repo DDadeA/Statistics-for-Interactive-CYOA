@@ -1,386 +1,498 @@
 <script lang="ts">
-	export let logData: LogEntry[] = [];
-	export let projectData: any = null;
-	export let progressMessage: string = '';
-	export let currentLang: string = 'en';
-
 	import { translations } from '$lib/translations';
-	import type { LogEntry } from '$lib/types';
+	import type { LogEntry, correlationObject } from '$lib/types';
 
-	$: t = translations[currentLang as keyof typeof translations];
+	// 1. Svelte 5 Props
+	let { logData = [], projectData = null, progressMessage = '', currentLang = 'en' } = $props();
 
-	// Options
-	let uniqueUsersOnly = false;
-	let timeRange = 'all'; // 'all', '24h', '7d', '30d'
-	let timeUnit = 'day'; // 'day', 'hour', 'week'
-	let selectedFilterChoice = '';
-	let isLogarithmicTime = false;
+	// 2. State (UI Controls)
+	let uniqueUsersOnly = $state(false);
+	let timeRange = $state('all'); // 'all', '24h', '7d', '30d'
+	let timeUnit = $state('day'); // 'day', 'hour', 'week'
+	let selectedFilterChoice = $state('');
+	let isLogarithmicTime = $state(false);
 
-	// Derived Data
-	let filteredLogData: LogEntry[] = [];
-	let visitorGraphData: { date: string; count: number; accumulated: number; label: string }[] = [];
-	let rowStatistics: any[] = [];
-	let generalStats: any = {};
-	let timeDistribution: { label: string; count: number; percent: number }[] = [];
-	let exitRowStats: { id: string; title: string; count: number; percent: number }[] = [];
-	let topCorrelations: correlationObject[] = [];
-	let allKnownChoices: string[] = [];
-	let original_url = '';
+	let correlationLimit = $state(10);
 
-	interface correlationObject {
-		idA: string;
-		idB: string;
-		count: number;
-		percent: number;
-		probA: number;
-		probB: number;
-		lift: number;
-	}
+	// Correlation Sorting Function State
+	const correlationSortOptions = [
+		{
+			label: 'Log-Weighted Lift (Balanced Heuristic)',
+			value: (a: correlationObject, b: correlationObject) =>
+				calcLogWeightedLift(b) - calcLogWeightedLift(a)
+		},
+		{
+			label: 'Jaccard Index (Intersection over Union)',
+			value: (a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)
+		},
+		{
+			label: 'Cosine Similarity',
+			value: (a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)
+		},
+		{
+			label: 'Frequency-weighted Lift',
+			value: (a: correlationObject, b: correlationObject) => b.lift * b.count - a.lift * a.count
+		},
+		{
+			label: 'Lift (Basic Probability Ratio)',
+			value: (a: correlationObject, b: correlationObject) => b.lift - a.lift
+		},
+		{
+			label: 'Co-Occurrence Percentage',
+			value: (a: correlationObject, b: correlationObject) => b.percent - a.percent
+		},
+		{
+			label: 'Co-Occurrence Count',
+			value: (a: correlationObject, b: correlationObject) => b.count - a.count
+		}
+	];
+	let correlationSortFunction = $state(correlationSortOptions[0].value);
 
-	let correlationSortFunction: (a: correlationObject, b: correlationObject) => number = (
-		a: correlationObject,
-		b: correlationObject
-	) => calcLogWeightedLift(b) - calcLogWeightedLift(a);
+	// 3. Derived Helpers
+	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
+	let original_url = $derived(
+		logData.length > 0 && logData[0].current_url ? logData[0].current_url : ''
+	);
 
-	const getProbAB = (obj: correlationObject) => obj.percent / 100;
+	// =================================================================================================
+	// 4. DATA PROCESSING PIPELINE (Optimized)
+	// =================================================================================================
 
-	const calcJaccard = (obj: correlationObject) => {
-		const pAB = getProbAB(obj);
-		// P(A∪B) = P(A) + P(B) - P(A∩B)
-		const union = obj.probA + obj.probB - pAB;
-		return union <= 0 ? 0 : pAB / union;
-	};
+	// Step A: Parse JSON once ($derived automatically caches this)
+	// This prevents JSON.parse from running thousands of times during renders.
+	let parsedLogData: LogEntry[] = $derived(
+		logData.map((entry) => {
+			let d: any = {};
+			try {
+				d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
 
-	const calcCosine = (obj: correlationObject) => {
-		const pAB = getProbAB(obj);
-		const denominator = Math.sqrt(obj.probA * obj.probB);
-		return denominator <= 0 ? 0 : pAB / denominator;
-	};
+				// Optimization: Pre-sort choices once here to avoid sorting in the O(N) loop later
+				if (d?.selectedChoices?.length) {
+					// Copy to avoid mutating original if it was passed as object
+					d.selectedChoices = [...d.selectedChoices].sort();
+				}
+			} catch (e) {
+				/* ignore */
+			}
 
-	const calcLogWeightedLift = (obj: correlationObject) => {
-		return obj.lift * Math.log(obj.count + 1);
-	};
+			return {
+				...entry,
+				data: null, // Free up memory
+				parsedData: d, // Store parsed data
+				timestamp: new Date(entry.created_at).getTime() // Store numeric timestamp for fast filtering
+			};
+		})
+	);
 
-	// Reactive Statements for Data Processing
-	$: {
-		t; // Dependency for language switching
-		let data = [...logData];
-		original_url = logData.length > 0 && logData[0].current_url ? logData[0].current_url : '';
+	// Step B: Apply Filters (Time, Unique User, Choice)
+	let filteredLogData = $derived.by(() => {
+		console.log('(B) Applying filters to log data...');
+		let data = parsedLogData;
 
-		// 1. Filter by Time Range
-		const now = new Date();
+		// 1. Time Filter (Numeric comparison is faster)
 		if (timeRange !== 'all') {
-			const cutoff = new Date();
-			if (timeRange === '24h') cutoff.setHours(now.getHours() - 24);
-			if (timeRange === '7d') cutoff.setDate(now.getDate() - 7);
-			if (timeRange === '30d') cutoff.setDate(now.getDate() - 30);
-			data = data.filter((entry) => new Date(entry.created_at) >= cutoff);
+			const now = Date.now();
+			let cutoff = now;
+			if (timeRange === '24h') cutoff -= 24 * 60 * 60 * 1000;
+			if (timeRange === '7d') cutoff -= 7 * 24 * 60 * 60 * 1000;
+			if (timeRange === '30d') cutoff -= 30 * 24 * 60 * 60 * 1000;
+			data = data.filter((e) => e.timestamp ?? 0 >= cutoff);
 		}
 
-		// 2. Filter by Unique Users (Latest entry per UID)
+		// 2. Unique Users
 		if (uniqueUsersOnly) {
-			const latestEntries = new Map<string, LogEntry>();
-			data.forEach((entry) => {
-				const existing = latestEntries.get(entry.uid);
-				if (
-					!existing ||
-					new Date(entry.created_at).getTime() > new Date(existing.created_at).getTime()
-				) {
+			const latestEntries = new Map();
+			let uidSet = new Set();
+			for (const entry of data) {
+				if (!uidSet.has(entry.uid)) {
 					latestEntries.set(entry.uid, entry);
+					uidSet.add(entry.uid);
 				}
-			});
+			}
 			data = Array.from(latestEntries.values());
 		}
 
-		// 3. Filter by Specific Choice
-		if (selectedFilterChoice) {
-			data = data.filter((entry) => {
-				try {
-					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-					return d.selectedChoices && d.selectedChoices.includes(selectedFilterChoice);
-				} catch (e) {
-					return false;
-				}
-			});
+		// 3. Filter by Choice
+		if (selectedFilterChoice != '') {
+			data = data.filter(
+				(entry) =>
+					entry.parsedData.selectedChoices &&
+					entry.parsedData.selectedChoices.includes(selectedFilterChoice)
+			);
 		}
 
-		filteredLogData = data;
+		return data;
+	});
 
-		// 4. Visitor Graph Data
+	// Step C: Global Choice Counts (Lookup Table)
+	let statisticsCounts = $derived.by(() => {
+		console.log('(C) Calculating global statistics counts...');
+		const counts: Record<string, number> = {};
+		for (const entry of filteredLogData) {
+			const choices = entry.parsedData.selectedChoices;
+			if (Array.isArray(choices)) {
+				for (const id of choices) {
+					counts[id] = (counts[id] || 0) + 1;
+				}
+			}
+		}
+		return counts;
+	});
+
+	// Step D: Object Map for Title/Image Lookups
+	let objectMap = $derived.by(() => {
+		console.log('(D) Building object map...');
+		const map: Record<string, any> = {};
+		if (projectData?.rows) {
+			for (const row of projectData.rows) {
+				if (row.objects) {
+					for (const obj of row.objects) {
+						map[obj.id] = obj;
+					}
+				}
+			}
+		}
+		return map;
+	});
+
+	// Step E: Object ID to Row ID Map
+	let objectToRowMap = $derived.by(() => {
+		console.log('(E) Building object to row map...');
+		const map: Record<string, { id: string; title: string }> = {};
+		if (projectData?.rows) {
+			for (const row of projectData.rows) {
+				if (row.objects) {
+					for (const obj of row.objects) {
+						map[obj.id] = { id: row.id, title: row.title || row.id };
+					}
+				}
+			}
+		}
+		return map;
+	});
+
+	// =================================================================================================
+	// 5. STATISTICS CALCULATION BLOCKS
+	// =================================================================================================
+
+	// --- 1. Visitor Graph ---
+	let visitorGraphData = $derived.by(() => {
+		console.log('(1) Calculating visitor graph...');
 		const groupedData: Record<string, number> = {};
 
-		data.forEach((entry) => {
-			const date = new Date(entry.created_at);
+		for (const entry of filteredLogData) {
+			const date = new Date(entry.timestamp ?? 0);
 			let key = '';
-			let label = '';
+
 			if (timeUnit === 'hour') {
-				// Round down to hour
 				date.setMinutes(0, 0, 0);
 				key = date.toISOString();
-				label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:00`;
 			} else if (timeUnit === 'week') {
-				// Round down to start of week (Monday)
 				const day = date.getDay();
-				const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+				const diff = date.getDate() - day + (day === 0 ? -6 : 1);
 				date.setDate(diff);
 				date.setHours(0, 0, 0, 0);
 				key = date.toISOString();
-				label = `${date.getMonth() + 1}/${date.getDate()}`;
 			} else {
-				// Round down to day
 				date.setHours(0, 0, 0, 0);
 				key = date.toISOString();
-				label = `${date.getMonth() + 1}/${date.getDate()}`;
 			}
 			groupedData[key] = (groupedData[key] || 0) + 1;
-		});
+		}
 
-		let graphData = Object.entries(groupedData)
+		let sorted = Object.entries(groupedData)
 			.map(([dateStr, count]) => {
 				const date = new Date(dateStr);
 				let label = '';
-				if (timeUnit === 'hour') {
+				if (timeUnit === 'hour')
 					label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:00`;
-				} else if (timeUnit === 'week') {
-					label = `${date.getMonth() + 1}/${date.getDate()}`;
-				} else {
-					label = `${date.getMonth() + 1}/${date.getDate()}`;
-				}
-				return {
-					date: dateStr,
-					count: count,
-					timestamp: date.getTime(),
-					label: label,
-					accumulated: 0
-				};
+				else label = `${date.getMonth() + 1}/${date.getDate()}`;
+
+				return { date: dateStr, count, timestamp: date.getTime(), label, accumulated: 0 };
 			})
 			.sort((a, b) => a.timestamp - b.timestamp);
 
 		let sum = 0;
-		graphData = graphData.map((item) => {
+		return sorted.map((item) => {
 			sum += item.count;
 			return { ...item, accumulated: sum };
 		});
+	});
 
-		visitorGraphData = graphData;
-
-		// 5. General Stats & Time Distribution
+	// --- 2. General Stats & Time Distribution ---
+	let generalData = $derived.by(() => {
+		console.log('(2) Calculating general stats...');
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
 		const times: number[] = [];
-
 		let totalViewportCount = 0;
-		data.forEach((entry) => {
-			try {
-				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-				if (d.timeOnPage) {
-					totalTime += d.timeOnPage;
-					timeCount++;
-					times.push(d.timeOnPage / 1000); // seconds
-				}
-				if (d.viewportSize) {
-					// Group by width to avoid fragmentation due to browser height differences
-					let key = d.viewportSize;
-					const parts = d.viewportSize.split('x');
-					if (parts.length === 2) {
-						key = `${parts[0]}px (Width)`;
-					}
-					viewports[key] = (viewports[key] || 0) + 1;
-					totalViewportCount++;
-				}
-			} catch (e) {}
-		});
 
-		generalStats = {
-			avgTimeOnPage: timeCount > 0 ? Math.round(totalTime / timeCount / 1000) : 0, // seconds
-			totalTimeOnPage: Math.round(totalTime / 1000), // seconds
+		for (const entry of filteredLogData) {
+			const d = entry.parsedData;
+			if (d.timeOnPage) {
+				totalTime += d.timeOnPage;
+				timeCount++;
+				times.push(d.timeOnPage / 1000);
+			}
+			if (d.viewportSize) {
+				let key = d.viewportSize;
+				const parts = d.viewportSize.split('x');
+				if (parts.length === 2) key = `${parts[0]}px (Width)`;
+				viewports[key] = (viewports[key] || 0) + 1;
+				totalViewportCount++;
+			}
+		}
+
+		// Stats
+		const stats = {
+			avgTimeOnPage: timeCount > 0 ? Math.round(totalTime / timeCount / 1000) : 0,
+			totalTimeOnPage: Math.round(totalTime / 1000),
 			topViewports: Object.entries(viewports)
 				.sort(([, a], [, b]) => b - a)
 				.slice(0, 5),
 			totalViewportCount
 		};
 
+		// Median
+		let median = 0;
+		times.sort((a, b) => a - b);
 		if (times.length > 0) {
-			// Calculate Median
-			times.sort((a, b) => a - b);
-			let median = 0;
 			const mid = Math.floor(times.length / 2);
-			if (times.length % 2 === 0) {
-				median = (times[mid - 1] + times[mid]) / 2;
-			} else {
-				median = times[mid];
-			}
-			generalStats.medianTimeOnPage = Math.round(median);
+			median = times.length % 2 === 0 ? (times[mid - 1] + times[mid]) / 2 : times[mid];
+		}
+		stats['medianTimeOnPage'] = Math.round(median);
 
+		// Distribution Buckets
+		let distribution: { label: string; count: number; percent: number }[] = [];
+		if (times.length > 0) {
 			if (isLogarithmicTime) {
-				// Logarithmic Buckets
-				const buckets = {
-					'< 10s': 0,
-					'10s - 1m': 0,
-					'1m - 10m': 0,
-					'10m - 1h': 0,
-					'> 1h': 0
-				};
-				times.forEach((t) => {
+				const buckets = { '< 10s': 0, '10s - 1m': 0, '1m - 10m': 0, '10m - 1h': 0, '> 1h': 0 };
+				for (const t of times) {
 					if (t < 10) buckets['< 10s']++;
 					else if (t < 60) buckets['10s - 1m']++;
 					else if (t < 600) buckets['1m - 10m']++;
 					else if (t < 3600) buckets['10m - 1h']++;
 					else buckets['> 1h']++;
-				});
-				timeDistribution = Object.entries(buckets).map(([label, count]) => ({
+				}
+				distribution = Object.entries(buckets).map(([label, count]) => ({
 					label,
 					count,
 					percent: (count / times.length) * 100
 				}));
 			} else {
-				// Linear Adaptive Buckets (Smart Adaptive)
-				// times is already sorted
 				const p95Index = Math.floor(times.length * 0.95);
 				const p95 = times[p95Index] || times[times.length - 1];
-
-				// Avoid creating too many small buckets if p95 is small
-				const maxVal = Math.max(p95, 60); // Minimum 60s range
+				const maxVal = Math.max(p95, 60);
 				const bucketCount = 10;
 				const bucketSize = maxVal / bucketCount;
 
-				const buckets: Record<string, number> = {};
-				const bucketLabels: string[] = [];
+				const bucketMap: Record<string, number> = {};
+				const labels: string[] = [];
 
-				// Initialize buckets
 				for (let i = 0; i < bucketCount; i++) {
 					const start = Math.round(i * bucketSize);
 					const end = Math.round((i + 1) * bucketSize);
 					const label = `${formatTime(start)}-${formatTime(end)}`;
-					buckets[label] = 0;
-					bucketLabels.push(label);
+					bucketMap[label] = 0;
+					labels.push(label);
 				}
-				const overflowLabel = `> ${formatTime(Math.round(maxVal))}`;
-				buckets[overflowLabel] = 0;
-				bucketLabels.push(overflowLabel);
+				const overflow = `> ${formatTime(Math.round(maxVal))}`;
+				bucketMap[overflow] = 0;
+				labels.push(overflow);
 
-				times.forEach((t) => {
-					if (t >= maxVal) {
-						buckets[overflowLabel]++;
-					} else {
-						const index = Math.floor(t / bucketSize);
-						const safeIndex = Math.min(index, bucketCount - 1);
-						buckets[bucketLabels[safeIndex]]++;
+				for (const t of times) {
+					if (t >= maxVal) bucketMap[overflow]++;
+					else {
+						const idx = Math.min(Math.floor(t / bucketSize), bucketCount - 1);
+						bucketMap[labels[idx]]++;
 					}
-				});
-
-				timeDistribution = bucketLabels.map((label) => ({
+				}
+				distribution = labels.map((label) => ({
 					label,
-					count: buckets[label],
-					percent: (buckets[label] / times.length) * 100
+					count: bucketMap[label],
+					percent: (bucketMap[label] / times.length) * 100
 				}));
 			}
-		} else {
-			timeDistribution = [];
 		}
 
-		// 6. Correlations
-		if (filteredLogData.length > 0) {
-			const individualChoiceCounts: Record<string, number> = {};
-			const pairCounts: Record<string, number> = {};
-			let totalEntries = filteredLogData.length;
+		return { stats, distribution };
+	});
 
-			filteredLogData.forEach((entry) => {
-				try {
-					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-					const choices = d.selectedChoices || [];
-					const sortedChoices = [...choices].sort();
+	let generalStats = $derived(generalData.stats);
+	let timeDistribution = $derived(generalData.distribution);
 
-					for (let i = 0; i < sortedChoices.length; i++) {
-						individualChoiceCounts[sortedChoices[i]] =
-							(individualChoiceCounts[sortedChoices[i]] || 0) + 1;
-						for (let j = i + 1; j < sortedChoices.length; j++) {
-							const key = `${sortedChoices[i]}|${sortedChoices[j]}`;
-							pairCounts[key] = (pairCounts[key] || 0) + 1;
-						}
-					}
-				} catch (e) {}
-			});
+	// --- 3. Correlations (Optimized) ---
+	let topCorrelations = $derived.by(() => {
+		console.log('(3-1) Updating correlations...');
 
-			topCorrelations = Object.entries(pairCounts)
-				.map(([key, count]) => {
-					const [idA, idB] = key.split('|');
-					const percent = (count / totalEntries) * 100;
-					const probA = individualChoiceCounts[idA] / totalEntries;
-					const probB = individualChoiceCounts[idB] / totalEntries;
+		if (filteredLogData.length === 0) return [];
 
-					const lift = percent / (probA * probB) / 100;
+		const pairCounts = new Map<string, number>();
+		const totalEntries = filteredLogData.length;
 
-					return { idA, idB, count, percent, probA, probB, lift };
-				})
-				.sort(correlationSortFunction);
-		} else {
-			topCorrelations = [];
+		for (const entry of filteredLogData) {
+			const choices = entry.parsedData.selectedChoices;
+			if (!choices || choices.length < 2) continue;
+
+			// Choices are already sorted in parsedLogData (Step A)
+			const len = choices.length;
+
+			// O(Choices^2) per user, but O(N * C^2) total.
+			for (let i = 0; i < len; i++) {
+				const choiceA = choices[i];
+				for (let j = i + 1; j < len; j++) {
+					const key = `${choiceA}|${choices[j]}`;
+					pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+				}
+			}
 		}
-	}
 
-	// 7. Row Statistics
-	$: {
-		if (projectData && projectData.rows && filteredLogData.length > 0) {
-			rowStatistics = projectData.rows.map((row: any) => {
-				const rowObjects = row.objects || [];
-				const rowObjectIds = new Set(rowObjects.map((o: any) => o.id));
+		return Array.from(pairCounts.entries()).map(([key, count]) => {
+			const [idA, idB] = key.split('|');
+			const countA = statisticsCounts[idA] || 0;
+			const countB = statisticsCounts[idB] || 0;
 
-				let rowTotalSelections = 0;
-				const objectCounts: Record<string, number> = {};
+			const percent = (count / totalEntries) * 100;
+			const probA = countA / totalEntries;
+			const probB = countB / totalEntries;
+			const lift = probA * probB > 0 ? percent / 100 / (probA * probB) : 0;
 
-				filteredLogData.forEach((entry) => {
-					try {
-						const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-						if (d.selectedChoices) {
-							d.selectedChoices.forEach((choiceId: string) => {
-								if (rowObjectIds.has(choiceId)) {
-									objectCounts[choiceId] = (objectCounts[choiceId] || 0) + 1;
-									rowTotalSelections++;
-								}
-							});
-						}
-					} catch (e) {}
-				});
-
-				return {
-					...row,
-					totalSelections: rowTotalSelections,
-					objectStats: rowObjects
-						.map((obj: any) => ({
-							...obj,
-							count: objectCounts[obj.id] || 0,
-							percentInRow:
-								rowTotalSelections > 0
-									? ((objectCounts[obj.id] || 0) / rowTotalSelections) * 100
-									: 0,
-							percentTotal: ((objectCounts[obj.id] || 0) / filteredLogData.length) * 100
-						}))
-						.sort((a: any, b: any) => b.count - a.count)
-				};
-			});
-		} else {
-			rowStatistics = [];
-		}
-	}
-
-	// 8. All Known Choices
-	$: allKnownChoices = (() => {
-		const choices = new Set<string>();
-		logData.forEach((entry) => {
-			try {
-				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-				if (d.selectedChoices) d.selectedChoices.forEach((c: string) => choices.add(c));
-			} catch (e) {}
+			return { idA, idB, count, percent, probA, probB, lift };
 		});
-		return Array.from(choices).sort();
-	})();
+	});
 
-	let statistics: Record<string, number> = {};
-	let objectMap: Record<string, any> = {};
-	let objectToRowMap: Record<string, { id: string; title: string }> = {};
+	let sortedTopCorrelations = $derived.by(() => {
+		console.log('(3-2) Sorting correlations...');
 
+		// Create a copy to make sure it's reactive
+		const correlationsCopy = [...topCorrelations];
+		return correlationsCopy.sort(correlationSortFunction);
+	});
+
+	let slicedSortedTopCorrelations = $derived.by(() => {
+		console.log('(3-3) Slicing top correlations...');
+		return sortedTopCorrelations.slice(0, correlationLimit);
+	});
+
+	// --- 4. Row Statistics (Heavily Optimized) ---
+	let rowStatistics = $derived.by(() => {
+		console.log('(4) Calculating row statistics...');
+		if (!projectData?.rows) return [];
+
+		return projectData.rows.map((row: any) => {
+			const rowObjects = row.objects || [];
+			let rowTotal = 0;
+
+			// Retrieve counts from the global statisticsCounts (O(1) lookup)
+			// No more looping through logData here!
+			const objectStats = rowObjects.map((obj: any) => {
+				const count = statisticsCounts[obj.id] || 0;
+				rowTotal += count;
+				return { ...obj, count };
+			});
+
+			// Calculate percentages
+			const enrichedStats = objectStats
+				.map((obj: any) => ({
+					...obj,
+					percentInRow: rowTotal > 0 ? (obj.count / rowTotal) * 100 : 0,
+					percentTotal: filteredLogData.length > 0 ? (obj.count / filteredLogData.length) * 100 : 0
+				}))
+				.sort((a: any, b: any) => b.count - a.count);
+
+			return {
+				...row,
+				totalSelections: rowTotal,
+				objectStats: enrichedStats
+			};
+		});
+	});
+
+	// --- 5. Exit Statistics ---
+	let exitRowStats = $derived.by(() => {
+		console.log('(5) Calculating exit row statistics...');
+		if (filteredLogData.length === 0 || Object.keys(objectToRowMap).length === 0) return [];
+
+		const exitCounts: Record<string, number> = {};
+		let validExits = 0;
+
+		for (const entry of filteredLogData) {
+			const choices = entry.parsedData.selectedChoices;
+			if (choices && choices.length > 0) {
+				const lastChoice = choices[choices.length - 1];
+				const rowInfo = objectToRowMap[lastChoice];
+				if (rowInfo) {
+					exitCounts[rowInfo.id] = (exitCounts[rowInfo.id] || 0) + 1;
+					validExits++;
+				}
+			}
+		}
+
+		return Object.entries(exitCounts)
+			.map(([rowId, count]) => {
+				const row = projectData.rows.find((r: any) => r.id === rowId);
+				return {
+					id: rowId,
+					title: row ? row.title || row.id : rowId,
+					count,
+					percent: validExits > 0 ? (count / validExits) * 100 : 0
+				};
+			})
+			.sort((a, b) => b.count - a.count);
+	});
+
+	// --- 6. User Words (Moved out of HTML) ---
+	let wordStatistics = $derived.by(() => {
+		console.log('(6) Calculating user-entered word statistics...');
+		const wordMap = new Map();
+		for (const entry of filteredLogData) {
+			const words = entry.parsedData.words;
+			if (words && Array.isArray(words)) {
+				for (const word of words) {
+					// Unique key per word ID + replacement text
+					const key = `${word.id}||${word.replaceText}`;
+					if (wordMap.has(key)) {
+						wordMap.get(key).count++;
+					} else {
+						wordMap.set(key, { ...word, count: 1 });
+					}
+				}
+			}
+		}
+		return Array.from(wordMap.values()).sort((a, b) => b.count - a.count);
+	});
+
+	// --- 7. Repeated Choices (Moved out of HTML) ---
+	let repeatedChoiceStats = $derived.by(() => {
+		console.log('(7) Calculating repeated choice statistics...');
+		const multiMap: Record<string, any> = {};
+		for (const entry of filteredLogData) {
+			const vars = entry.parsedData.multipleUseVariable;
+			if (vars && Array.isArray(vars)) {
+				for (const item of vars) {
+					if (!multiMap[item.id]) {
+						multiMap[item.id] = {
+							id: item.id,
+							totalCount: 0,
+							occurrences: 0,
+							distribution: {}
+						};
+					}
+					multiMap[item.id].totalCount += item.count;
+					multiMap[item.id].occurrences++;
+					const k = item.count;
+					multiMap[item.id].distribution[k] = (multiMap[item.id].distribution[k] || 0) + 1;
+				}
+			}
+		}
+		return Object.values(multiMap).sort((a: any, b: any) => b.totalCount - a.totalCount);
+	});
+
+	// --- 8. All Known Choices List ---
+	let allKnownChoices = $derived(Object.keys(statisticsCounts).sort());
+
+	// Utils
 	function formatTime(seconds: number): string {
 		if (seconds < 60) return `${seconds}s`;
 		const mins = Math.floor(seconds / 60);
@@ -391,79 +503,22 @@
 		return `${days}d ${hours % 24}h`;
 	}
 
-	// Statistics Calculation (Based on filtered data)
-	$: statistics = (() => {
-		if (!filteredLogData || filteredLogData.length === 0) return {};
+	// Correlation Helper Functions
+	const getProbAB = (obj: correlationObject) => obj.percent / 100;
 
-		const stats: Record<string, number> = {};
-
-		filteredLogData.forEach((entry) => {
-			try {
-				const data = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-				if (data.selectedChoices && Array.isArray(data.selectedChoices)) {
-					data.selectedChoices.forEach((choiceId: string) => {
-						stats[choiceId] = (stats[choiceId] || 0) + 1;
-					});
-				}
-			} catch (e) {
-				// ignore error
-			}
-		});
-		return stats;
-	})();
-
-	$: objectMap = (() => {
-		if (!projectData || !projectData.rows) return {};
-		const map: Record<string, any> = {};
-		const rowMap: Record<string, { id: string; title: string }> = {};
-
-		projectData.rows.forEach((row: any) => {
-			if (row.objects) {
-				row.objects.forEach((obj: any) => {
-					map[obj.id] = obj;
-					rowMap[obj.id] = { id: row.id, title: row.title || row.id };
-				});
-			}
-		});
-		objectToRowMap = rowMap;
-		return map;
-	})();
-
-	// Exit Row Statistics
-	$: {
-		if (filteredLogData.length > 0 && Object.keys(objectToRowMap).length > 0) {
-			const exitCounts: Record<string, number> = {};
-			let validExits = 0;
-
-			filteredLogData.forEach((entry) => {
-				try {
-					const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-					if (d.selectedChoices && d.selectedChoices.length > 0) {
-						const lastChoice = d.selectedChoices[d.selectedChoices.length - 1];
-						const row = objectToRowMap[lastChoice];
-						if (row) {
-							exitCounts[row.id] = (exitCounts[row.id] || 0) + 1;
-							validExits++;
-						}
-					}
-				} catch (e) {}
-			});
-
-			exitRowStats = Object.entries(exitCounts)
-				.map(([rowId, count]) => {
-					const row = projectData.rows.find((r: any) => r.id === rowId);
-					return {
-						id: rowId,
-						title: row ? row.title || row.id : rowId,
-						count,
-						percent: validExits > 0 ? (count / validExits) * 100 : 0
-					};
-				})
-				.sort((a, b) => b.count - a.count);
-		} else {
-			exitRowStats = [];
-		}
-	}
+	const calcJaccard = (obj: correlationObject) => {
+		const pAB = getProbAB(obj);
+		const union = obj.probA + obj.probB - pAB;
+		return union <= 0 ? 0 : pAB / union;
+	};
+	const calcCosine = (obj: correlationObject) => {
+		const pAB = getProbAB(obj);
+		const denom = Math.sqrt(obj.probA * obj.probB);
+		return denom <= 0 ? 0 : pAB / denom;
+	};
+	const calcLogWeightedLift = (obj: correlationObject) => {
+		return obj.lift * Math.log(obj.count + 1);
+	};
 </script>
 
 <div>
@@ -542,7 +597,7 @@
 				<line x1="50" y1="250" x2="50" y2="50" stroke="#ccc" />
 				<line x1="950" y1="250" x2="950" y2="50" stroke="#ccc" />
 
-				<!-- Bars (Daily/Hourly Count) -->
+				<!-- Bars -->
 				{#each visitorGraphData as d, i}
 					{@const slotWidth = 900 / visitorGraphData.length}
 					{@const barWidth = slotWidth * 0.8}
@@ -575,7 +630,7 @@
 						.join(' ')}
 				/>
 
-				<!-- Data Points (Accumulated) -->
+				<!-- Data Points -->
 				{#each visitorGraphData as d, i}
 					{@const slotWidth = 900 / visitorGraphData.length}
 					{@const x = 50 + i * slotWidth + slotWidth / 2}
@@ -586,32 +641,27 @@
 				{/each}
 
 				<!-- Labels -->
-				{#if visitorGraphData.length > 0}
-					{#each visitorGraphData as d, i}
-						{#if i % Math.ceil(visitorGraphData.length / 6) === 0 || i === visitorGraphData.length - 1}
-							{@const slotWidth = 900 / visitorGraphData.length}
-							{@const x = 50 + i * slotWidth + slotWidth / 2}
-							<text
-								{x}
-								y="270"
-								font-size="12"
-								fill="#666"
-								text-anchor="middle"
-								transform="rotate(0, {x}, 270)">{d.label}</text
-							>
-						{/if}
-					{/each}
+				{#each visitorGraphData as d, i}
+					{#if i % Math.ceil(visitorGraphData.length / 6) === 0 || i === visitorGraphData.length - 1}
+						{@const slotWidth = 900 / visitorGraphData.length}
+						{@const x = 50 + i * slotWidth + slotWidth / 2}
+						<text
+							{x}
+							y="270"
+							font-size="12"
+							fill="#666"
+							text-anchor="middle"
+							transform="rotate(0, {x}, 270)">{d.label}</text
+						>
+					{/if}
+				{/each}
 
-					<!-- Left Axis Label (Count) -->
-					<text x="40" y="50" font-size="12" fill="#3b82f6" text-anchor="end">{maxCount}</text>
-					<text x="40" y="250" font-size="12" fill="#3b82f6" text-anchor="end">0</text>
-
-					<!-- Right Axis Label (Accumulated) -->
-					<text x="960" y="50" font-size="12" fill="#ef4444" text-anchor="start"
-						>{maxAccumulated}</text
-					>
-					<text x="960" y="250" font-size="12" fill="#ef4444" text-anchor="start">0</text>
-				{/if}
+				<text x="40" y="50" font-size="12" fill="#3b82f6" text-anchor="end">{maxCount}</text>
+				<text x="40" y="250" font-size="12" fill="#3b82f6" text-anchor="end">0</text>
+				<text x="960" y="50" font-size="12" fill="#ef4444" text-anchor="start"
+					>{maxAccumulated}</text
+				>
+				<text x="960" y="250" font-size="12" fill="#ef4444" text-anchor="start">0</text>
 			</svg>
 			<div class="chart-legend">
 				<div class="legend-item">
@@ -641,12 +691,15 @@
 		</div>
 		<div class="stat-card wide">
 			<h3>{t.topViewports}</h3>
-			{#if generalStats.topViewports && generalStats.totalViewportCount > 0}
+			{#if generalStats.topViewports && generalStats.topViewports.length > 0}
 				{@const colors = ['#3b82f6', '#ef4444', '#22c55e', '#eab308', '#a855f7', '#9ca3af']}
-				{@const top5Total = generalStats.topViewports.reduce((sum, [, count]) => sum + count, 0)}
+				{@const top5Total = generalStats.topViewports.reduce(
+					(sum: number, [, count]: any) => sum + count,
+					0
+				)}
 				{@const otherCount = generalStats.totalViewportCount - top5Total}
 				{@const pieData = [
-					...generalStats.topViewports.map(([label, count], i) => ({
+					...generalStats.topViewports.map(([label, count]: any, i: number) => ({
 						label,
 						count,
 						color: colors[i % colors.length]
@@ -732,51 +785,24 @@
 
 	<!-- Choice Correlations -->
 	<h2 id="correlations">{t.choiceCorrelations}</h2>
-	<select
-		id="correlationSort"
-		bind:value={correlationSortFunction}
-		on:change={() => {
-			// Trigger re-calculation
-			topCorrelations = [...topCorrelations].sort(correlationSortFunction);
-		}}
-	>
-		<option
-			value={(a: correlationObject, b: correlationObject) =>
-				calcLogWeightedLift(b) - calcLogWeightedLift(a)}
-			selected
-		>
-			Log-Weighted Lift (Balanced Heuristic)
-		</option>
-
-		<option value={(a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)}>
-			Jaccard Index (Intersection over Union)
-		</option>
-
-		<option value={(a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)}>
-			Cosine Similarity (Ochiai Coefficient)
-		</option>
-
-		<option
-			value={(a: correlationObject, b: correlationObject) => b.count * b.lift - a.count * a.lift}
-		>
-			Lift-Weighted Frequency (Popularity Biased)
-		</option>
-
-		<option value={(a: correlationObject, b: correlationObject) => b.lift - a.lift}>
-			Lift (Interest Measure)
-		</option>
-
-		<option value={(a: correlationObject, b: correlationObject) => b.percent - a.percent}>
-			Support (%)
-		</option>
-
-		<option value={(a: correlationObject, b: correlationObject) => b.count - a.count}>
-			Support (Frequency)
-		</option>
+	<select id="correlationSort" bind:value={correlationSortFunction}>
+		{#each correlationSortOptions as option}
+			<option value={option.value} selected={option.value == correlationSortOptions[0].value}
+				>{option.label}</option
+			>
+		{/each}
 	</select>
+	<input
+		type="range"
+		min="1"
+		max="100"
+		step="1"
+		bind:value={correlationLimit}
+		class="number-input"
+	/>
 
 	<div class="correlation-grid">
-		{#each topCorrelations.slice(0, 10) as corr}
+		{#each slicedSortedTopCorrelations as corr}
 			{@const objA = objectMap[corr.idA]}
 			{@const objB = objectMap[corr.idB]}
 			<div class="correlation-card">
@@ -792,7 +818,7 @@
 				</div>
 			</div>
 		{/each}
-		{#if topCorrelations.length === 0}
+		{#if slicedSortedTopCorrelations.length === 0}
 			<p class="text-gray italic">{t.noCorrelations}</p>
 		{/if}
 	</div>
@@ -800,39 +826,9 @@
 	<!-- User-Entered Words -->
 	<h2 id="user-words">{t.userEnteredWords || 'User-Entered Words'}</h2>
 	<div class="words-container">
-		{#if filteredLogData.some((entry) => {
-			try {
-				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-				return d.words && d.words.length > 0;
-			} catch (e) {
-				return false;
-			}
-		})}
-			{@const allWords = []}
-			{#each filteredLogData as entry}
-				{#if entry}
-					{(() => {
-						try {
-							const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-							if (d.words && d.words.length > 0) {
-								d.words.forEach((word) => {
-									const existing = allWords.find(
-										(w) => w.id === word.id && w.replaceText === word.replaceText
-									);
-									if (existing) {
-										existing.count++;
-									} else {
-										allWords.push({ ...word, count: 1 });
-									}
-								});
-							}
-						} catch (e) {}
-						return null;
-					})()}
-				{/if}
-			{/each}
+		{#if wordStatistics.length > 0}
 			<div class="grid">
-				{#each allWords.sort((a, b) => b.count - a.count) as word}
+				{#each wordStatistics as word}
 					{@const obj = objectMap[word.id]}
 					<div class="card">
 						{#if obj}
@@ -859,49 +855,14 @@
 		{/if}
 	</div>
 
-	<!-- Multiple Use Variables (Repeated Choices) -->
+	<!-- Repeated Choices -->
 	<h2 id="repeated-choices">{t.repeatedChoices || 'Repeated Choices'}</h2>
 	<div class="multiple-use-container">
-		{#if filteredLogData.some((entry) => {
-			try {
-				const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-				return d.multipleUseVariable && d.multipleUseVariable.length > 0;
-			} catch (e) {
-				return false;
-			}
-		})}
-			{@const multipleUseMap = {}}
-			{#each filteredLogData as entry}
-				{#if entry}
-					{(() => {
-						try {
-							const d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-							if (d.multipleUseVariable && d.multipleUseVariable.length > 0) {
-								d.multipleUseVariable.forEach((item) => {
-									if (!multipleUseMap[item.id]) {
-										multipleUseMap[item.id] = {
-											id: item.id,
-											totalCount: 0,
-											occurrences: 0,
-											distribution: {}
-										};
-									}
-									multipleUseMap[item.id].totalCount += item.count;
-									multipleUseMap[item.id].occurrences++;
-									const k = item.count;
-									multipleUseMap[item.id].distribution[k] =
-										(multipleUseMap[item.id].distribution[k] || 0) + 1;
-								});
-							}
-						} catch (e) {}
-						return null;
-					})()}
-				{/if}
-			{/each}
+		{#if repeatedChoiceStats.length > 0}
 			<div class="repeated-choices-list">
-				{#each Object.values(multipleUseMap).sort((a, b) => b.totalCount - a.totalCount) as item}
+				{#each repeatedChoiceStats as item}
 					{@const obj = objectMap[item.id]}
-					{@const maxDist = Math.max(...Object.values(item.distribution))}
+					{@const maxDist = Math.max(...Object.values(item.distribution as Record<string, number>))}
 					<div class="repeated-choice-row">
 						<div class="choice-header">
 							{#if obj && obj.image}
@@ -937,7 +898,7 @@
 									<div class="dist-bar-bg">
 										<div
 											class="dist-bar-fill"
-											style="width: {(userCount / maxDist) * 100}%"
+											style="width: {(Number(userCount) / maxDist) * 100}%"
 											title="{userCount} users selected this {count} times"
 										></div>
 									</div>
@@ -1032,7 +993,7 @@
 
 		<h2 id="object-stats">{t.objectStats}</h2>
 		<div class="grid">
-			{#each Object.entries(statistics).sort(([, a], [, b]) => b - a) as [id, count]}
+			{#each Object.entries(statisticsCounts).sort(([, a], [, b]) => b - a) as [id, count]}
 				{@const obj = objectMap[id]}
 				<div class="card">
 					{#if obj}
@@ -1075,7 +1036,6 @@
 				{t.clickUpdateProject}
 			</p>
 		</div>
-		<pre class="mt-4">{JSON.stringify(statistics, null, 2)}</pre>
 	{/if}
 </div>
 
@@ -1309,6 +1269,17 @@
 		font-size: 2rem;
 		font-weight: bold;
 		color: #2563eb;
+	}
+	.number-input {
+		width: 60px;
+		padding: 0.25rem;
+		border: 1px solid #d1d5db;
+		border-radius: 0.375rem;
+		background-color: white;
+		font-size: 0.875rem;
+		color: #111827;
+		cursor: pointer;
+		margin-left: 1rem;
 	}
 	.correlation-grid {
 		display: grid;

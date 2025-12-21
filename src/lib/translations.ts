@@ -48,7 +48,7 @@ export const translations = {
 		median: 'Median',
 		logarithmicScale: 'Logarithmic Scale',
 		noTimeData: 'No time data available.',
-		choiceCorrelations: 'Choice Correlations (Top 10)',
+		choiceCorrelations: 'Choice Correlations',
 		noCorrelations: 'No significant correlations found.',
 		exitPointAnalysis: 'Exit Point Analysis (Last Selected Row)',
 		noExitData: 'No exit data available.',
@@ -65,7 +65,9 @@ export const translations = {
 		noStatsData:
 			'No statistics data available to find project URL. Please UPDATE STATISTICS first.',
 		errorParsing: 'Error parsing log data',
-		noCurrentUrl: 'Could not find currentURL in the latest log entry.'
+		noCurrentUrl: 'Could not find currentURL in the latest log entry.',
+		loadingStats: 'Loading statistics...',
+		statsLoaded: 'Statistics loaded!'
 	},
 	ko: {
 		toc: '목차',
@@ -116,7 +118,7 @@ export const translations = {
 		median: '중앙값',
 		logarithmicScale: '로그 스케일',
 		noTimeData: '시간 데이터가 없습니다.',
-		choiceCorrelations: '선택 연관성 (상위 10개)',
+		choiceCorrelations: '선택 연관성',
 		noCorrelations: '유의미한 연관성을 찾을 수 없습니다.',
 		exitPointAnalysis: '이탈 지점 분석 (마지막 Row)',
 		noExitData: '이탈 데이터가 없습니다.',
@@ -132,6 +134,8 @@ export const translations = {
 		projectLoaded: '프로젝트 데이터 로드 성공!',
 		noStatsData: '프로젝트 URL을 찾을 통계 데이터가 없습니다. 먼저 통계를 업데이트해주세요.',
 		errorParsing: '로그 데이터 파싱 오류',
-		noCurrentUrl: '최신 로그에서 currentURL을 찾을 수 없습니다.'
+		noCurrentUrl: '최신 로그에서 currentURL을 찾을 수 없습니다.',
+		loadingStats: '통계 불러오는 중...',
+		statsLoaded: '통계 불러오기 완료!'
 	}
 };
