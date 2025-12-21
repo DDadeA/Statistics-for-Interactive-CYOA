@@ -12,6 +12,8 @@
 	let selectedFilterChoice = $state('');
 	let isLogarithmicTime = $state(false);
 
+	let correlationLimit = $state(10);
+
 	// Correlation Sorting Function State
 	const correlationSortOptions = [
 		{
@@ -779,9 +781,10 @@
 			>
 		{/each}
 	</select>
+	<input type="number" min="1" max="100" bind:value={correlationLimit} class="number-input" />
 
 	<div class="correlation-grid">
-		{#each sortedTopCorrelations.slice(0, Math.floor(sortedTopCorrelations.length)) as corr}
+		{#each sortedTopCorrelations.slice(0, correlationLimit) as corr}
 			{@const objA = objectMap[corr.idA]}
 			{@const objB = objectMap[corr.idB]}
 			<div class="correlation-card">
