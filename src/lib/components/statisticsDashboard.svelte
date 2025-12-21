@@ -365,13 +365,15 @@
 	let sortedTopCorrelations = $derived.by(() => {
 		console.log('(3-2) Sorting correlations...');
 
-		// Make apprent correlationSortFunction reactive.
-		console.log('\t Using correlation sort function:', correlationSortFunction.toString());
-
-		return topCorrelations.sort(correlationSortFunction);
+		// Create a copy to make sure it's reactive
+		const correlationsCopy = [...topCorrelations];
+		return correlationsCopy.sort(correlationSortFunction);
 	});
 
-	let slicedSortedTopCorrelations = $derived(sortedTopCorrelations.slice(0, correlationLimit));
+	let slicedSortedTopCorrelations = $derived.by(() => {
+		console.log('(3-3) Slicing top correlations...');
+		return sortedTopCorrelations.slice(0, correlationLimit);
+	});
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
