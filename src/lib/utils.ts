@@ -53,6 +53,20 @@ export async function fetchWithProgress(
 	}
 }
 
+export class ProcessingData {
+	hasProgress: boolean;
+	progressMessage: string;
+	totalSteps: number;
+	currentStep: number;
+
+	constructor(hasProgress = false, progressMessage = '', totalSteps = 0, currentStep = 0) {
+		this.hasProgress = hasProgress;
+		this.progressMessage = progressMessage;
+		this.totalSteps = totalSteps;
+		this.currentStep = currentStep;
+	}
+}
+
 export const query = async (platform: App.Platform, query: string, params?: any[]) => {
 	// @ts-ignore
 	const DB = platform.env.DB;

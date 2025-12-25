@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { translations } from '$lib/translations';
+	import { ProcessingData } from '$lib/utils';
 	import type { LogEntry, correlationObject } from '$lib/types';
 
 	// 1. Svelte 5 Props
@@ -177,7 +178,7 @@
 
 	// --- 1. Visitor Graph ---
 	let visitorGraphData = $derived.by(() => {
-		console.log('(1) Calculating visitor graph...');
+		console.timeLog('(1) Visitor Graph Calculation Time');
 		const groupedData: Record<string, number> = {};
 
 		for (const entry of filteredLogData) {
@@ -213,6 +214,7 @@
 			.sort((a, b) => a.timestamp - b.timestamp);
 
 		let sum = 0;
+		console.timeEnd('(1) Visitor Graph Calculation Time');
 		return sorted.map((item) => {
 			sum += item.count;
 			return { ...item, accumulated: sum };
@@ -221,7 +223,7 @@
 
 	// --- 2. General Stats & Time Distribution ---
 	let generalData = $derived.by(() => {
-		console.log('(2) Calculating general stats...');
+		console.time('(2) General Stats Calculation Time');
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
@@ -316,6 +318,7 @@
 			}
 		}
 
+		console.timeEnd('(2) General Stats Calculation Time');
 		return { stats, distribution };
 	});
 
@@ -324,7 +327,8 @@
 
 	// --- 3. Correlations (Optimized) ---
 	let topCorrelations = $derived.by(() => {
-		console.log('(3-1) Updating correlations...');
+		// console.log('(3-1) Updating correlations...');
+		console.time('(3-1) Correlations Calculation Time');
 
 		if (filteredLogData.length === 0) return [];
 
@@ -348,7 +352,7 @@
 			}
 		}
 
-		return Array.from(pairCounts.entries()).map(([key, count]) => {
+		const correlations = Array.from(pairCounts.entries()).map(([key, count]) => {
 			const [idA, idB] = key.split('|');
 			const countA = statisticsCounts[idA] || 0;
 			const countB = statisticsCounts[idB] || 0;
@@ -360,27 +364,33 @@
 
 			return { idA, idB, count, percent, probA, probB, lift };
 		});
+		console.timeEnd('(3-1) Correlations Calculation Time');
+		return correlations;
 	});
 
 	let sortedTopCorrelations = $derived.by(() => {
-		console.log('(3-2) Sorting correlations...');
+		console.time('(3-2) Correlation Sorting Time');
 
 		// Create a copy to make sure it's reactive
 		const correlationsCopy = [...topCorrelations];
-		return correlationsCopy.sort(correlationSortFunction);
+		const sorted = correlationsCopy.sort(correlationSortFunction);
+		console.timeEnd('(3-2) Correlation Sorting Time');
+		return sorted;
 	});
 
 	let slicedSortedTopCorrelations = $derived.by(() => {
-		console.log('(3-3) Slicing top correlations...');
-		return sortedTopCorrelations.slice(0, correlationLimit);
+		console.time('(3-3) Correlation Slicing Time');
+
+		const sliced = sortedTopCorrelations.slice(0, correlationLimit);
+		console.timeEnd('(3-3) Correlation Slicing Time');
+		return sliced;
 	});
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
-		console.log('(4) Calculating row statistics...');
 		if (!projectData?.rows) return [];
 
-		return projectData.rows.map((row: any) => {
+		const result = projectData.rows.map((row: any) => {
 			const rowObjects = row.objects || [];
 			let rowTotal = 0;
 
@@ -407,12 +417,15 @@
 				objectStats: enrichedStats
 			};
 		});
+		console.timeEnd('(4) Row Statistics Calculation Time');
+		return result;
 	});
 
 	// --- 5. Exit Statistics ---
 	let exitRowStats = $derived.by(() => {
-		console.log('(5) Calculating exit row statistics...');
+		// console.log('(5) Calculating exit row statistics...');
 		if (filteredLogData.length === 0 || Object.keys(objectToRowMap).length === 0) return [];
+		console.time('(5) Exit Row Statistics Calculation Time');
 
 		const exitCounts: Record<string, number> = {};
 		let validExits = 0;
@@ -429,7 +442,7 @@
 			}
 		}
 
-		return Object.entries(exitCounts)
+		const result = Object.entries(exitCounts)
 			.map(([rowId, count]) => {
 				const row = projectData.rows.find((r: any) => r.id === rowId);
 				return {
@@ -440,6 +453,9 @@
 				};
 			})
 			.sort((a, b) => b.count - a.count);
+
+		console.timeEnd('(5) Exit Row Statistics Calculation Time');
+		return result;
 	});
 
 	// --- 6. User Words (Moved out of HTML) ---
@@ -460,7 +476,9 @@
 				}
 			}
 		}
-		return Array.from(wordMap.values()).sort((a, b) => b.count - a.count);
+		const result = Array.from(wordMap.values()).sort((a, b) => b.count - a.count);
+		console.timeEnd('(6) User Word Statistics Calculation Time');
+		return result;
 	});
 
 	// --- 7. Repeated Choices (Moved out of HTML) ---
@@ -784,7 +802,7 @@
 	</div>
 
 	<!-- Choice Correlations -->
-	<h2 id="correlations">{t.choiceCorrelations}</h2>
+	<h2 id="correlations">{t.choiceCorrelations} (top {correlationLimit})</h2>
 	<select id="correlationSort" bind:value={correlationSortFunction}>
 		{#each correlationSortOptions as option}
 			<option value={option.value} selected={option.value == correlationSortOptions[0].value}
