@@ -267,7 +267,8 @@
 			topViewports: Object.entries(viewports)
 				.sort(([, a], [, b]) => b - a)
 				.slice(0, 5),
-			totalViewportCount
+			totalViewportCount,
+			medianTimeOnPage: -1
 		};
 
 		// Median
@@ -277,7 +278,7 @@
 			const mid = Math.floor(times.length / 2);
 			median = times.length % 2 === 0 ? (times[mid - 1] + times[mid]) / 2 : times[mid];
 		}
-		stats['medianTimeOnPage'] = Math.round(median);
+		stats.medianTimeOnPage = Math.round(median);
 
 		// Distribution Buckets
 		let distribution: { label: string; count: number; percent: number }[] = [];
@@ -342,7 +343,6 @@
 	// --- 3. Correlations (Optimized) ---
 	let topCorrelations = $derived.by(() => {
 		if (filteredLogData.length === 0) return [];
-
 
 		console.time('(3-1) Correlations Calculation Time');
 		const pairCounts = new Map<string, number>();
@@ -620,6 +620,7 @@
 					min="0"
 					bind:value={selectedFilterChoiceCount}
 				/>
+			</div>
 		</div>
 	</div>
 
@@ -794,8 +795,8 @@
 	<h2 id="time-distribution">
 		{t.timeOnPageDistribution}
 		<span class="text-sm font-normal text-gray ml-2">
-			({t.avg}: {formatTime(generalStats.avgTimeOnPage || 0)}, {t.median}: {formatTime(
-				generalStats.medianTimeOnPage || 0
+			({t.avg}: {formatTime(generalStats.avgTimeOnPage)}, {t.median}: {formatTime(
+				generalStats.medianTimeOnPage
 			)})
 		</span>
 		<label class="toggle inline-toggle">
