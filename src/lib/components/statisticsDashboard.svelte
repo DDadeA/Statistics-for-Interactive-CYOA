@@ -484,9 +484,14 @@
 			const words = entry.parsedData.words;
 			if (words && Array.isArray(words)) {
 				for (const word of words) {
+					if (word.replaceText == null) continue;
+					if (word.replaceText.trim() === '') word.replaceText = '(empty)';
+
 					// Register word occurrence
 					if (!wordMap.has(word.id)) {
-						wordMap.set(word.id, new Map([[word.replaceText, { ...word, count: 1 }]]));
+						const wordObj = new Map();
+						wordObj.set(word.replaceText, { ...word, count: 1 });
+						wordMap.set(word.id, wordObj);
 						continue;
 					}
 
