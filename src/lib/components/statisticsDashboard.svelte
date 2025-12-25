@@ -178,7 +178,7 @@
 
 	// --- 1. Visitor Graph ---
 	let visitorGraphData = $derived.by(() => {
-		console.timeLog('(1) Visitor Graph Calculation Time');
+		console.time('(1) Visitor Graph Calculation Time');
 		const groupedData: Record<string, number> = {};
 
 		for (const entry of filteredLogData) {
@@ -389,6 +389,7 @@
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
 		if (!projectData?.rows) return [];
+		console.time('(4) Row Statistics Calculation Time');
 
 		const result = projectData.rows.map((row: any) => {
 			const rowObjects = row.objects || [];
@@ -483,7 +484,9 @@
 
 	// --- 7. Repeated Choices (Moved out of HTML) ---
 	let repeatedChoiceStats = $derived.by(() => {
-		console.log('(7) Calculating repeated choice statistics...');
+		// console.log('(7) Calculating repeated choice statistics...');
+		console.time('(7) Repeated Choice Statistics Calculation Time');
+
 		const multiMap: Record<string, any> = {};
 		for (const entry of filteredLogData) {
 			const vars = entry.parsedData.multipleUseVariable;
@@ -504,7 +507,9 @@
 				}
 			}
 		}
-		return Object.values(multiMap).sort((a: any, b: any) => b.totalCount - a.totalCount);
+		const result = Object.values(multiMap).sort((a: any, b: any) => b.totalCount - a.totalCount);
+		console.timeEnd('(7) Repeated Choice Statistics Calculation Time');
+		return result;
 	});
 
 	// --- 8. All Known Choices List ---
