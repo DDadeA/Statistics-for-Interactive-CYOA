@@ -475,13 +475,17 @@
 		return result;
 	});
 
+	interface Word {
+		id: string;
+		replaceText: string;
+	}
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
 		console.time('(6) User Word Statistics Calculation Time');
-		const wordMap = new Map();
+		const wordStat: Record<string, Record<string, number>> = {};
 
 		for (const entry of filteredLogData) {
-			const words = entry.parsedData.words;
+			const words = entry.parsedData.words as Word[];
 			if (words && Array.isArray(words)) {
 				for (const word of words) {
 					if (word.replaceText == null) continue;
@@ -489,29 +493,26 @@
 					word.replaceText = word.replaceText.trim();
 
 					// Register word occurrence
-					if (!wordMap.has(word.id)) {
-						const wordObj = new Map();
-						wordObj.set(word.replaceText, { ...word, count: 1 });
-						wordMap.set(word.id, wordObj);
+					if (!wordStat[word.id]) {
+						wordStat[word.id] = { [`${word.replaceText}`]: 1 };
 						continue;
 					}
 
-					const wordObj = wordMap.get(word.id);
-
+					const wordObj = wordStat[word.id];
 					// Register replaceText occurrence
-					if (!wordObj.has(word.replaceText)) {
-						wordObj.set(word.replaceText, { count: 1 });
+					if (!wordObj[word.replaceText]) {
+						wordObj[word.replaceText] = 1;
 						continue;
 					}
 
-					wordObj.get(word.replaceText).count += 1;
+					wordObj[word.replaceText] += 1;
 				}
 			}
 		}
-		const result = Array.from(wordMap.entries()).map(([id, variants]) => {
-			const variantArray = Array.from(variants.values()).sort(
-				(a: any, b: any) => b.count - a.count
-			);
+		const result = Object.entries(wordStat).map(([id, variants]) => {
+			const variantArray = Object.entries(variants)
+				.map(([replaceText, count]) => ({ replaceText, count }))
+				.sort((a: any, b: any) => b.count - a.count);
 			const totalCount = variantArray.reduce((sum: number, v: any) => sum + v.count, 0);
 			return { id, totalCount, variants: variantArray };
 		});
@@ -912,7 +913,7 @@
 						</p>
 
 						<div style="display: flex; flex-direction: column; gap: 0.5rem;">
-							{#each word.variants.sort((a, b) => b.count - a.count) as variant}
+							{#each word.variants.slice(0, 10) as variant}
 								<div>
 									<div
 										style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-bottom: 0.125rem;"
