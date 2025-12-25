@@ -11,6 +11,7 @@
 	let timeRange = $state('all'); // 'all', '24h', '7d', '30d'
 	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let selectedFilterChoice = $state('');
+	let selectedFilterChoiceCount = $state(3);
 	let isLogarithmicTime = $state(false);
 
 	let correlationLimit = $state(10);
@@ -87,7 +88,8 @@
 
 	// Step B: Apply Filters (Time, Unique User, Choice)
 	let filteredLogData = $derived.by(() => {
-		console.log('(B) Applying filters to log data...');
+		// console.log('(B) Applying filters to log data...');
+		console.time('(B) Applying filters to log data...');
 		let data = parsedLogData;
 
 		// 1. Time Filter (Numeric comparison is faster)
@@ -122,12 +124,21 @@
 			);
 		}
 
+		if (selectedFilterChoiceCount > 0) {
+			data = data.filter(
+				(entry) =>
+					entry.parsedData.selectedChoices &&
+					entry.parsedData.selectedChoices.length >= selectedFilterChoiceCount
+			);
+		}
+
+		console.timeEnd('(B) Applying filters to log data...');
 		return data;
 	});
 
 	// Step C: Global Choice Counts (Lookup Table)
 	let statisticsCounts = $derived.by(() => {
-		console.log('(C) Calculating global statistics counts...');
+		console.time('(C) Calculating global statistics counts...');
 		const counts: Record<string, number> = {};
 		for (const entry of filteredLogData) {
 			const choices = entry.parsedData.selectedChoices;
@@ -137,12 +148,13 @@
 				}
 			}
 		}
+		console.timeEnd('(C) Calculating global statistics counts...');
 		return counts;
 	});
 
 	// Step D: Object Map for Title/Image Lookups
 	let objectMap = $derived.by(() => {
-		console.log('(D) Building object map...');
+		console.time('(D) Building object map...');
 		const map: Record<string, any> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -153,12 +165,13 @@
 				}
 			}
 		}
+		console.timeEnd('(D) Building object map...');
 		return map;
 	});
 
 	// Step E: Object ID to Row ID Map
 	let objectToRowMap = $derived.by(() => {
-		console.log('(E) Building object to row map...');
+		console.time('(E) Building object to row map...');
 		const map: Record<string, { id: string; title: string }> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -169,6 +182,7 @@
 				}
 			}
 		}
+		console.timeEnd('(E) Building object to row map...');
 		return map;
 	});
 
@@ -599,6 +613,14 @@
 					{/each}
 				</select>
 			</div>
+			<div class="select-group">
+				<label for="filterChoiceCount">{t.minChoicesSelected}</label>
+				<input
+					type="number"
+					id="filterChoiceCount"
+					min="0"
+					bind:value={selectedFilterChoiceCount}
+				/>
 		</div>
 	</div>
 
