@@ -31,24 +31,28 @@ export async function fetchWithProgress(
 	const response = await fetch(url);
 	if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-	const contentLength = response.headers.get('content-length');
-	const total = contentLength ? parseInt(contentLength, 10) : 0;
-	let loaded = 0;
+	try {
+		const contentLength = response.headers.get('content-length');
+		const total = contentLength ? parseInt(contentLength, 10) : 0;
+		let loaded = 0;
 
-	const reader = response.body?.getReader();
-	const chunks = [];
+		const reader = response.body?.getReader();
+		const chunks = [];
 
-	if (reader) {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			chunks.push(value);
-			loaded += value.length;
-			if (onProgress) onProgress(loaded, total);
+		if (reader) {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+				loaded += value.length;
+				if (onProgress) onProgress(loaded, total);
+			}
+			const blob = new Blob(chunks);
+			return JSON.parse(await blob.text());
+		} else {
+			throw new Error('ReadableStream not supported in this environment.');
 		}
-		const blob = new Blob(chunks);
-		return JSON.parse(await blob.text());
-	} else {
+	} catch (error) {
 		return response.json();
 	}
 }
