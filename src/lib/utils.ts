@@ -1,5 +1,5 @@
 export const finderUrl = 'https://icc-project-finder.aseli4488.workers.dev/?path=';
-export const proxyUrl = ''; // We are not using a proxy now.
+export const proxyUrl = 'https://cloudflare-cors-anywhere.aseli4488.workers.dev/?';
 
 export const getHash = async (secret_key: string, pepper: string) => {
 	// Ensure secret_key is a string

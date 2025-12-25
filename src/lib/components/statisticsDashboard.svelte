@@ -341,11 +341,10 @@
 
 	// --- 3. Correlations (Optimized) ---
 	let topCorrelations = $derived.by(() => {
-		// console.log('(3-1) Updating correlations...');
-		console.time('(3-1) Correlations Calculation Time');
-
 		if (filteredLogData.length === 0) return [];
 
+
+		console.time('(3-1) Correlations Calculation Time');
 		const pairCounts = new Map<string, number>();
 		const totalEntries = filteredLogData.length;
 
@@ -475,7 +474,7 @@
 
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
-		console.log('(6) Calculating user-entered word statistics...');
+		console.log('(6) User Word Statistics Calculation Time');
 		const wordMap = new Map();
 		for (const entry of filteredLogData) {
 			const words = entry.parsedData.words;
