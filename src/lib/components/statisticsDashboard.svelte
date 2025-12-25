@@ -14,6 +14,7 @@
 	let selectedFilterChoiceCount = $state(3);
 	let isLogarithmicTime = $state(false);
 
+	let enableCorrelation = $state(false);
 	let correlationLimit = $state(10);
 
 	// Correlation Sorting Function State
@@ -342,6 +343,8 @@
 
 	// --- 3. Correlations (Optimized) ---
 	let topCorrelations = $derived.by(() => {
+		if (!enableCorrelation) return [];
+		if (projectData == null) return [];
 		if (filteredLogData.length === 0) return [];
 
 		console.time('(3-1) Correlations Calculation Time');
@@ -474,7 +477,7 @@
 
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
-		console.log('(6) User Word Statistics Calculation Time');
+		console.time('(6) User Word Statistics Calculation Time');
 		const wordMap = new Map();
 		for (const entry of filteredLogData) {
 			const words = entry.parsedData.words;
@@ -845,7 +848,11 @@
 		bind:value={correlationLimit}
 		class="number-input"
 	/>
-
+	<input type="checkbox" id="enableCorrelation" bind:checked={enableCorrelation} />
+	<label for="enableCorrelation">{t.enableCorrelation}</label>
+	{#if !enableCorrelation}
+		<p class="text-red-600 italic">{t.correlationDisabled}</p>
+	{/if}
 	<div class="correlation-grid">
 		{#each slicedSortedTopCorrelations as corr}
 			{@const objA = objectMap[corr.idA]}

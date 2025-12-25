@@ -68,7 +68,9 @@ export const translations = {
 		errorParsing: 'Error parsing log data',
 		noCurrentUrl: 'Could not find currentURL in the latest log entry.',
 		loadingStats: 'Loading statistics...',
-		statsLoaded: 'Statistics loaded!'
+		statsLoaded: 'Statistics loaded!',
+		enableCorrelation: 'Enable Correlations',
+		correlationDisabled: 'Correlations are disabled.'
 	},
 	ko: {
 		toc: '목차',
@@ -138,6 +140,8 @@ export const translations = {
 		errorParsing: '로그 데이터 파싱 오류',
 		noCurrentUrl: '최신 로그에서 currentURL을 찾을 수 없습니다.',
 		loadingStats: '통계 불러오는 중...',
-		statsLoaded: '통계 불러오기 완료!'
+		statsLoaded: '통계 불러오기 완료!',
+		enableCorrelation: '연관성 활성화',
+		correlationDisabled: '연관성이 비활성화되었습니다.'
 	}
 };
