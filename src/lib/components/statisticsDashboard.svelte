@@ -486,6 +486,7 @@
 				for (const word of words) {
 					if (word.replaceText == null) continue;
 					if (word.replaceText.trim() === '') word.replaceText = '(empty)';
+					word.replaceText = word.replaceText.trim();
 
 					// Register word occurrence
 					if (!wordMap.has(word.id)) {
@@ -516,6 +517,7 @@
 		});
 
 		console.timeEnd('(6) User Word Statistics Calculation Time');
+		console.log('Word Statistics:', result);
 		return result;
 	});
 
@@ -910,7 +912,7 @@
 						</p>
 
 						<div style="display: flex; flex-direction: column; gap: 0.5rem;">
-							{#each word.variants.slice(0, 10) as variant}
+							{#each word.variants.sort((a, b) => b.count - a.count) as variant}
 								<div>
 									<div
 										style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-bottom: 0.125rem;"
