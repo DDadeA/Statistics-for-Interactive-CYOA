@@ -1,5 +1,5 @@
 export const finderUrl = 'https://icc-project-finder.aseli4488.workers.dev/?path=';
-export const proxyUrl = 'https://corsproxy.io/?';
+export const proxyUrl = 'https://cloudflare-cors-anywhere.aseli4488.workers.dev/?';
 
 export const getHash = async (secret_key: string, pepper: string) => {
 	// Ensure secret_key is a string
@@ -50,6 +50,20 @@ export async function fetchWithProgress(
 		return JSON.parse(await blob.text());
 	} else {
 		return response.json();
+	}
+}
+
+export class ProcessingData {
+	hasProgress: boolean;
+	progressMessage: string;
+	totalSteps: number;
+	currentStep: number;
+
+	constructor(hasProgress = false, progressMessage = '', totalSteps = 0, currentStep = 0) {
+		this.hasProgress = hasProgress;
+		this.progressMessage = progressMessage;
+		this.totalSteps = totalSteps;
+		this.currentStep = currentStep;
 	}
 }
 

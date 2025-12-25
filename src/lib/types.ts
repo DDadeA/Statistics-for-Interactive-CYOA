@@ -23,4 +23,5 @@ interface correlationObject {
 	probB: number;
 	lift: number;
 }
+
 export type { LogEntry, correlationObject };

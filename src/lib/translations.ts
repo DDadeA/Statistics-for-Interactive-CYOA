@@ -30,6 +30,7 @@ export const translations = {
 		day: 'Day',
 		hour: 'Hour',
 		filterByChoice: 'Filter by Choice:',
+		minChoicesSelected: 'Filter by count of selected Choice',
 		allChoices: 'All Choices',
 		visitorCount: 'Visitor Count',
 		periodCount: 'Period Count (Left Axis)',
@@ -67,7 +68,9 @@ export const translations = {
 		errorParsing: 'Error parsing log data',
 		noCurrentUrl: 'Could not find currentURL in the latest log entry.',
 		loadingStats: 'Loading statistics...',
-		statsLoaded: 'Statistics loaded!'
+		statsLoaded: 'Statistics loaded!',
+		enableCorrelation: 'Enable Correlations',
+		correlationDisabled: 'Correlations are disabled.'
 	},
 	ko: {
 		toc: '목차',
@@ -100,6 +103,7 @@ export const translations = {
 		day: '일',
 		hour: '시간',
 		filterByChoice: '선택지로 필터링:',
+		minChoicesSelected: '최소 선택 수로 필터링:',
 		allChoices: '모든 선택지',
 		visitorCount: '방문자 수',
 		periodCount: '기간별 방문자 (왼쪽 축)',
@@ -136,6 +140,8 @@ export const translations = {
 		errorParsing: '로그 데이터 파싱 오류',
 		noCurrentUrl: '최신 로그에서 currentURL을 찾을 수 없습니다.',
 		loadingStats: '통계 불러오는 중...',
-		statsLoaded: '통계 불러오기 완료!'
+		statsLoaded: '통계 불러오기 완료!',
+		enableCorrelation: '연관성 활성화',
+		correlationDisabled: '연관성이 비활성화되었습니다.'
 	}
 };
