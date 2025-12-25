@@ -85,7 +85,7 @@
 				setProgress(`Loading project.json... ${Math.round(loaded / 1024)}KB`);
 			}).catch((error) => {
 				console.error('Error fetching project.json:', error);
-				setProgress(t.errorFetching);
+				setProgress(t.errorFetching + `(${error})`);
 				throw error;
 			});
 		} else if (finding_data.type === 'icc') {

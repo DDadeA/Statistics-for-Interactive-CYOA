@@ -475,26 +475,50 @@
 		return result;
 	});
 
+	interface Word {
+		id: string;
+		replaceText: string;
+	}
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
 		console.time('(6) User Word Statistics Calculation Time');
-		const wordMap = new Map();
+		const wordStat: Record<string, Record<string, number>> = {};
+
 		for (const entry of filteredLogData) {
-			const words = entry.parsedData.words;
+			const words = entry.parsedData.words as Word[];
 			if (words && Array.isArray(words)) {
 				for (const word of words) {
-					// Unique key per word ID + replacement text
-					const key = `${word.id}||${word.replaceText}`;
-					if (wordMap.has(key)) {
-						wordMap.get(key).count++;
-					} else {
-						wordMap.set(key, { ...word, count: 1 });
+					if (word.replaceText == null) continue;
+					if (word.replaceText.trim() === '') word.replaceText = '(empty)';
+					word.replaceText = word.replaceText.trim();
+
+					// Register word occurrence
+					if (!wordStat[word.id]) {
+						wordStat[word.id] = { [`${word.replaceText}`]: 1 };
+						continue;
 					}
+
+					const wordObj = wordStat[word.id];
+					// Register replaceText occurrence
+					if (!wordObj[word.replaceText]) {
+						wordObj[word.replaceText] = 1;
+						continue;
+					}
+
+					wordObj[word.replaceText] += 1;
 				}
 			}
 		}
-		const result = Array.from(wordMap.values()).sort((a, b) => b.count - a.count);
+		const result = Object.entries(wordStat).map(([id, variants]) => {
+			const variantArray = Object.entries(variants)
+				.map(([replaceText, count]) => ({ replaceText, count }))
+				.sort((a: any, b: any) => b.count - a.count);
+			const totalCount = variantArray.reduce((sum: number, v: any) => sum + v.count, 0);
+			return { id, totalCount, variants: variantArray };
+		});
+
 		console.timeEnd('(6) User Word Statistics Calculation Time');
+		console.log('Word Statistics:', result);
 		return result;
 	});
 
@@ -881,24 +905,40 @@
 		{#if wordStatistics.length > 0}
 			<div class="grid">
 				{#each wordStatistics as word}
-					{@const obj = objectMap[word.id]}
 					<div class="card">
-						{#if obj}
-							<h3>{obj.title || word.id}</h3>
-							{#if obj.text}
-								<p class="text-sm text-gray">{obj.text}</p>
-							{/if}
-						{:else}
-							<h3>{word.id}</h3>
+						<h3>{word.id}</h3>
+						<p class="text-sm text-gray" style="margin-bottom: 0.5rem;">
+							{t.totalEntries || 'Total'}:
+							<span class="font-bold text-blue">{word.totalCount}</span>
+						</p>
+
+						<div style="display: flex; flex-direction: column; gap: 0.5rem;">
+							{#each word.variants.slice(0, 10) as variant}
+								<div>
+									<div
+										style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-bottom: 0.125rem;"
+									>
+										<span class="break-words" style="font-weight: 500;"
+											>"{variant.replaceText}"</span
+										>
+										<span class="text-gray">{variant.count}</span>
+									</div>
+									<div class="progress-bar-bg" style="height: 0.5rem; margin-top: 0;">
+										<div
+											class="progress-bar-fill"
+											style="width: {(variant.count / word.totalCount) * 100}%; height: 0.5rem;"
+										></div>
+									</div>
+								</div>
+							{/each}
+						</div>
+
+						{#if word.variants.length > 10}
+							<p class="text-xs text-gray text-center mt-2">
+								+ {word.variants.length - 10}
+								{t.more || 'more'}
+							</p>
 						{/if}
-						<div class="card-content mt-2">
-							<p class="text-sm font-bold">{t.userInput || 'User Input'}:</p>
-							<p class="text-xs text-gray break-words">{word.replaceText}</p>
-						</div>
-						<div class="card-footer mt-2">
-							<span class="text-gray text-sm">{t.count}</span>
-							<span class="text-lg font-bold text-blue">{word.count}</span>
-						</div>
 					</div>
 				{/each}
 			</div>
