@@ -1,4 +1,4 @@
-const version = "0.0.5";
+const version = "0.0.6";
 let startTime = Date.now();
 let initialized = false;
 
@@ -99,19 +99,25 @@ function initializeLogging(projectId) {
     });
     console.log("\tRegistered pagehide event.");
 
-// Load Google Analytics
-var script = document.createElement('script');
-script.async = true;
-script.src = "https://www.googletagmanager.com/gtag/js?id=G-TWEP89QL51";
-document.head.appendChild(script);
+    // Load Google Analytics
+    if (!document.querySelector('script[src*="googletagmanager.com/gtag/js"]')) {
+        var script = document.createElement('script');
+        script.async = true;
+        script.src = "https://www.googletagmanager.com/gtag/js?id=G-TWEP89QL51";
+        document.head.appendChild(script);
 
-window.dataLayer = window.dataLayer || [];
-function gtag(){window.dataLayer.push(arguments);}
+        window.dataLayer = window.dataLayer || [];
+        
+        // 전역 함수로 선언
+        window.gtag = function(){window.dataLayer.push(arguments);}
 
-gtag('config', 'G-TWEP89QL51', {
-    'cookie_flags': 'SameSite=None; Secure',
-    'anonymize_ip': true
-});
+        // 표준 타임스탬프 초기화
+        window.gtag('js', new Date());
+
+        window.gtag('config', 'G-TWEP89QL51', {
+            'cookie_flags': 'SameSite=None; Secure'
+        });
+    }
 
     initialized = true;
 }
