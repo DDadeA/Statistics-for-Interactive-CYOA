@@ -1,4 +1,4 @@
-const version = "0.0.4";
+const version = "0.0.5";
 let startTime = Date.now();
 let initialized = false;
 
@@ -98,6 +98,20 @@ function initializeLogging(projectId) {
         }
     });
     console.log("\tRegistered pagehide event.");
+
+// Load Google Analytics
+var script = document.createElement('script');
+script.async = true;
+script.src = "https://www.googletagmanager.com/gtag/js?id=G-TWEP89QL51";
+document.head.appendChild(script);
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){window.dataLayer.push(arguments);}
+
+gtag('config', 'G-TWEP89QL51', {
+    'cookie_flags': 'SameSite=None; Secure',
+    'anonymize_ip': true
+});
 
     initialized = true;
 }
