@@ -24,4 +24,9 @@ interface correlationObject {
 	lift: number;
 }
 
-export type { LogEntry, correlationObject };
+interface Word {
+	id: string;
+	replaceText: string;
+}
+
+export type { LogEntry, correlationObject, Word };

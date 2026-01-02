@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { translations } from '$lib/translations';
 	import { ProcessingData } from '$lib/utils';
-	import type { LogEntry, correlationObject } from '$lib/types';
+	import type { LogEntry, correlationObject, Word } from '$lib/types';
+	import CorrelationTable from './correlationTable.svelte';
 
 	// 1. Svelte 5 Props
 	let { logData = [], projectData = null, progressMessage = '', currentLang = 'en' } = $props();
@@ -14,43 +15,6 @@
 	let selectedFilterChoiceCount = $state(3);
 	let isLogarithmicTime = $state(false);
 
-	let enableCorrelation = $state(false);
-	let correlationLimit = $state(10);
-
-	// Correlation Sorting Function State
-	const correlationSortOptions = [
-		{
-			label: 'Log-Weighted Lift (Balanced Heuristic)',
-			value: (a: correlationObject, b: correlationObject) =>
-				calcLogWeightedLift(b) - calcLogWeightedLift(a)
-		},
-		{
-			label: 'Jaccard Index (Intersection over Union)',
-			value: (a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)
-		},
-		{
-			label: 'Cosine Similarity',
-			value: (a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)
-		},
-		{
-			label: 'Frequency-weighted Lift',
-			value: (a: correlationObject, b: correlationObject) => b.lift * b.count - a.lift * a.count
-		},
-		{
-			label: 'Lift (Basic Probability Ratio)',
-			value: (a: correlationObject, b: correlationObject) => b.lift - a.lift
-		},
-		{
-			label: 'Co-Occurrence Percentage',
-			value: (a: correlationObject, b: correlationObject) => b.percent - a.percent
-		},
-		{
-			label: 'Co-Occurrence Count',
-			value: (a: correlationObject, b: correlationObject) => b.count - a.count
-		}
-	];
-	let correlationSortFunction = $state(correlationSortOptions[0].value);
-
 	// 3. Derived Helpers
 	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
 	let original_url = $derived(
@@ -58,11 +22,8 @@
 	);
 
 	// =================================================================================================
-	// 4. DATA PROCESSING PIPELINE (Optimized)
+	// 4. DATA PROCESSING PIPELINE
 	// =================================================================================================
-
-	// Step A: Parse JSON once ($derived automatically caches this)
-	// This prevents JSON.parse from running thousands of times during renders.
 	let parsedLogData: LogEntry[] = $derived(
 		logData.map((entry) => {
 			let d: any = {};
@@ -87,9 +48,7 @@
 		})
 	);
 
-	// Step B: Apply Filters (Time, Unique User, Choice)
 	let filteredLogData = $derived.by(() => {
-		// console.log('(B) Applying filters to log data...');
 		console.time('(B) Applying filters to log data...');
 		let data = parsedLogData;
 
@@ -137,7 +96,6 @@
 		return data;
 	});
 
-	// Step C: Global Choice Counts (Lookup Table)
 	let statisticsCounts = $derived.by(() => {
 		console.time('(C) Calculating global statistics counts...');
 		const counts: Record<string, number> = {};
@@ -153,7 +111,6 @@
 		return counts;
 	});
 
-	// Step D: Object Map for Title/Image Lookups
 	let objectMap = $derived.by(() => {
 		console.time('(D) Building object map...');
 		const map: Record<string, any> = {};
@@ -170,7 +127,6 @@
 		return map;
 	});
 
-	// Step E: Object ID to Row ID Map
 	let objectToRowMap = $derived.by(() => {
 		console.time('(E) Building object to row map...');
 		const map: Record<string, { id: string; title: string }> = {};
@@ -341,67 +297,6 @@
 	let generalStats = $derived(generalData.stats);
 	let timeDistribution = $derived(generalData.distribution);
 
-	// --- 3. Correlations (Optimized) ---
-	let topCorrelations = $derived.by(() => {
-		if (!enableCorrelation) return [];
-		if (projectData == null) return [];
-		if (filteredLogData.length === 0) return [];
-
-		console.time('(3-1) Correlations Calculation Time');
-		const pairCounts = new Map<string, number>();
-		const totalEntries = filteredLogData.length;
-
-		for (const entry of filteredLogData) {
-			const choices = entry.parsedData.selectedChoices;
-			if (!choices || choices.length < 2) continue;
-
-			// Choices are already sorted in parsedLogData (Step A)
-			const len = choices.length;
-
-			// O(Choices^2) per user, but O(N * C^2) total.
-			for (let i = 0; i < len; i++) {
-				const choiceA = choices[i];
-				for (let j = i + 1; j < len; j++) {
-					const key = `${choiceA}|${choices[j]}`;
-					pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
-				}
-			}
-		}
-
-		const correlations = Array.from(pairCounts.entries()).map(([key, count]) => {
-			const [idA, idB] = key.split('|');
-			const countA = statisticsCounts[idA] || 0;
-			const countB = statisticsCounts[idB] || 0;
-
-			const percent = (count / totalEntries) * 100;
-			const probA = countA / totalEntries;
-			const probB = countB / totalEntries;
-			const lift = probA * probB > 0 ? percent / 100 / (probA * probB) : 0;
-
-			return { idA, idB, count, percent, probA, probB, lift };
-		});
-		console.timeEnd('(3-1) Correlations Calculation Time');
-		return correlations;
-	});
-
-	let sortedTopCorrelations = $derived.by(() => {
-		console.time('(3-2) Correlation Sorting Time');
-
-		// Create a copy to make sure it's reactive
-		const correlationsCopy = [...topCorrelations];
-		const sorted = correlationsCopy.sort(correlationSortFunction);
-		console.timeEnd('(3-2) Correlation Sorting Time');
-		return sorted;
-	});
-
-	let slicedSortedTopCorrelations = $derived.by(() => {
-		console.time('(3-3) Correlation Slicing Time');
-
-		const sliced = sortedTopCorrelations.slice(0, correlationLimit);
-		console.timeEnd('(3-3) Correlation Slicing Time');
-		return sliced;
-	});
-
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
 		if (!projectData?.rows) return [];
@@ -475,10 +370,6 @@
 		return result;
 	});
 
-	interface Word {
-		id: string;
-		replaceText: string;
-	}
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
 		console.time('(6) User Word Statistics Calculation Time');
@@ -565,23 +456,6 @@
 		const days = Math.floor(hours / 24);
 		return `${days}d ${hours % 24}h`;
 	}
-
-	// Correlation Helper Functions
-	const getProbAB = (obj: correlationObject) => obj.percent / 100;
-
-	const calcJaccard = (obj: correlationObject) => {
-		const pAB = getProbAB(obj);
-		const union = obj.probA + obj.probB - pAB;
-		return union <= 0 ? 0 : pAB / union;
-	};
-	const calcCosine = (obj: correlationObject) => {
-		const pAB = getProbAB(obj);
-		const denom = Math.sqrt(obj.probA * obj.probB);
-		return denom <= 0 ? 0 : pAB / denom;
-	};
-	const calcLogWeightedLift = (obj: correlationObject) => {
-		return obj.lift * Math.log(obj.count + 1);
-	};
 </script>
 
 <div>
@@ -855,49 +729,7 @@
 		{/if}
 	</div>
 
-	<!-- Choice Correlations -->
-	<h2 id="correlations">{t.choiceCorrelations} (top {correlationLimit})</h2>
-	<select id="correlationSort" bind:value={correlationSortFunction}>
-		{#each correlationSortOptions as option}
-			<option value={option.value} selected={option.value == correlationSortOptions[0].value}
-				>{option.label}</option
-			>
-		{/each}
-	</select>
-	<input
-		type="range"
-		min="1"
-		max="100"
-		step="1"
-		bind:value={correlationLimit}
-		class="number-input"
-	/>
-	<input type="checkbox" id="enableCorrelation" bind:checked={enableCorrelation} />
-	<label for="enableCorrelation">{t.enableCorrelation}</label>
-	{#if !enableCorrelation}
-		<p class="text-red-600 italic">{t.correlationDisabled}</p>
-	{/if}
-	<div class="correlation-grid">
-		{#each slicedSortedTopCorrelations as corr}
-			{@const objA = objectMap[corr.idA]}
-			{@const objB = objectMap[corr.idB]}
-			<div class="correlation-card">
-				<div class="correlation-pair">
-					<span title={corr.idA}>{objA ? objA.title || corr.idA : corr.idA}</span>
-					<span class="separator">+</span>
-					<span title={corr.idB}>{objB ? objB.title || corr.idB : corr.idB}</span>
-				</div>
-				<div class="correlation-stat">
-					<span class="lift">Lift: {corr.lift.toFixed(2)}</span>
-					<span class="count">{corr.count}</span>
-					<span class="percent">({corr.percent.toFixed(1)}%)</span>
-				</div>
-			</div>
-		{/each}
-		{#if slicedSortedTopCorrelations.length === 0}
-			<p class="text-gray italic">{t.noCorrelations}</p>
-		{/if}
-	</div>
+	<CorrelationTable {t} {filteredLogData} {statisticsCounts} {objectMap} />
 
 	<!-- User-Entered Words -->
 	<h2 id="user-words">{t.userEnteredWords || 'User-Entered Words'}</h2>
@@ -908,7 +740,7 @@
 					<div class="card">
 						<h3>{word.id}</h3>
 						<p class="text-sm text-gray" style="margin-bottom: 0.5rem;">
-							{t.totalEntries || 'Total'}:
+							{t.totalEntries}:
 							<span class="font-bold text-blue">{word.totalCount}</span>
 						</p>
 

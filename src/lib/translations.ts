@@ -70,7 +70,8 @@ export const translations = {
 		loadingStats: 'Loading statistics...',
 		statsLoaded: 'Statistics loaded!',
 		enableCorrelation: 'Enable Correlations',
-		correlationDisabled: 'Correlations are disabled.'
+		correlationDisabled: 'Correlations are disabled.',
+		totalEntries: 'Total Entries'
 	},
 	ko: {
 		toc: '목차',
@@ -142,6 +143,7 @@ export const translations = {
 		loadingStats: '통계 불러오는 중...',
 		statsLoaded: '통계 불러오기 완료!',
 		enableCorrelation: '연관성 활성화',
-		correlationDisabled: '연관성이 비활성화되었습니다.'
+		correlationDisabled: '연관성이 비활성화되었습니다.',
+		totalEntries: '총 항목 수'
 	}
 };
