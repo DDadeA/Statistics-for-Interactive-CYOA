@@ -1,6 +1,7 @@
 import { query } from '$lib/utils';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { countData } from '$lib/types';
 
 export const GET: RequestHandler = async ({ request, platform }) => {
 	if (!platform) {
@@ -16,11 +17,11 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	(SELECT COUNT(distinct data_hash) FROM logs) AS build_count;`
 	);
 
-	const data = {
-		total_time_ms: result.results[0]?.total_time_ms || -1,
-		uid_count: result.results[0]?.uid_count || -1,
-		project_count: result.results[0]?.project_count || -1,
-		build_count: result.results[0]?.build_count || -1
+	const data: countData = {
+		total_time_ms: result.results[0]?.total_time_ms as number,
+		uid_count: result.results[0]?.uid_count as number,
+		project_count: result.results[0]?.project_count as number,
+		build_count: result.results[0]?.build_count as number
 	};
 
 	return json(data, {
