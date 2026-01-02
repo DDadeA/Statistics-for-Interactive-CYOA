@@ -1,25 +1,33 @@
 import { query } from '$lib/utils';
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 
-export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
-	// Return COUNT(*) from all logs
+export const GET: RequestHandler = async ({ request, platform }) => {
+	if (!platform) {
+		return json({ error: 'This message should not be shown. code: CT01' }, { status: 500 });
+	}
+
 	const result = await query(
 		platform,
 		`SELECT 
-  SUM(
-    CASE 
-      WHEN time_on_page > 10800000 THEN 10800000 
-      ELSE time_on_page 
-    END
-  ) as adjusted_total_time
-FROM logs`
+    (SELECT SUM(time_on_page) FROM logs) AS total_time_ms,
+    (SELECT COUNT(DISTINCT uid) FROM logs) AS uid_count,
+    (SELECT COUNT(*) FROM projects) AS project_count,
+	(SELECT COUNT(distinct data_hash) FROM logs) AS build_count;`
 	);
 
-	const adjustedTotalTime = result.results[0]?.adjusted_total_time || 0;
-	return new Response(JSON.stringify({ adjustedTotalTime }), {
+	const data = {
+		total_time_ms: result.results[0]?.total_time_ms || -1,
+		uid_count: result.results[0]?.uid_count || -1,
+		project_count: result.results[0]?.project_count || -1,
+		build_count: result.results[0]?.build_count || -1
+	};
+
+	return json(data, {
 		status: 200,
 		headers: {
 			'Cache-Control': 'public, max-age=600',
 			'Content-Type': 'application/json'
 		}
 	});
-}
+};
