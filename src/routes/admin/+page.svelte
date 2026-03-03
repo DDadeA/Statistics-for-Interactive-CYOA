@@ -104,6 +104,49 @@
 		project_id: string;
 		created_at: string;
 	}
+	function drawActivityGraph(
+		ctx: CanvasRenderingContext2D,
+		data: any[],
+		canvas: HTMLCanvasElement,
+		label: string
+	) {
+		const padding = 40;
+		const width = canvas.width - 2 * padding;
+		const height = canvas.height - 2 * padding;
+
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+		if (data.length === 0) {
+			ctx.fillText('No data available', canvas.width / 2 - 50, canvas.height / 2);
+			return;
+		}
+
+		const maxCount = Math.max(...data.map((d) => d.count));
+		const barWidth = width / data.length;
+
+		// Draw axes
+		ctx.strokeStyle = '#000';
+		ctx.beginPath();
+		ctx.moveTo(padding, padding);
+		ctx.lineTo(padding, canvas.height - padding);
+		ctx.lineTo(canvas.width - padding, canvas.height - padding);
+		ctx.stroke();
+
+		// Draw bars
+		ctx.fillStyle = '#4CAF50';
+		data.forEach((point, index) => {
+			const barHeight = (point.count / maxCount) * height;
+			const x = padding + index * barWidth;
+			const y = canvas.height - padding - barHeight;
+
+			ctx.fillRect(x + 2, y, barWidth - 4, barHeight);
+		});
+
+		// Draw title
+		ctx.fillStyle = '#000';
+		ctx.font = 'bold 14px Arial';
+		ctx.fillText(`${label} - Activity`, 10, 20);
+	}
 
 	async function loadActivityGraphData() {
 		// api/log without project_id returns all projects with project_id and created_at
@@ -121,11 +164,21 @@
 			counts[dateKey] = (counts[dateKey] || 0) + 1;
 		});
 
-		// Convert counts to array of { date, count }
+		// Convert counts to array of { date, count }. key is project_id
 		activityData = Object.entries(counts).map(([date, count]) => ({
 			date,
 			count
 		}));
+
+		const canvas = document.getElementById('activity-graph') as HTMLCanvasElement;
+		if (canvas) {
+			const ctx = canvas.getContext('2d');
+			if (ctx) {
+				const project = data.projects.find((proj) => proj.project_id === selectedProjectId);
+				const projectLabel = project ? project.project_id.substring(0, 5) : 'All';
+				drawActivityGraph(ctx, activityData, canvas, projectLabel);
+			}
+		}
 	}
 </script>
 
@@ -133,35 +186,7 @@
 	<h2>Activity Graph</h2>
 	<p id="progress-message">{progressMessage}</p>
 	<button on:click={loadActivityGraphData}>Load Activity Graph Data</button>
-	<!-- // Create line graph using svg -->
-	{#if activityData.length > 0}
-		<svg width="600" height="300">
-			<!-- X and Y axis -->
-			<line x1="50" y1="250" x2="550" y2="250" stroke="black" />
-			<line x1="50" y1="50" x2="50" y2="250" stroke="black" />
-
-			<!-- Data points and lines -->
-			{#each activityData as point, index (point.date)}
-				{#if index > 0}
-					<!-- Line from previous point to current point -->
-					<line
-						x1={50 + (index - 1) * (500 / activityData.length)}
-						y1={250 - (activityData[index - 1].count / 10) * 200}
-						x2={50 + index * (500 / activityData.length)}
-						y2={250 - (point.count / 10) * 200}
-						stroke="blue"
-					/>
-				{/if}
-				<!-- Data point -->
-				<circle
-					cx={50 + index * (500 / activityData.length)}
-					cy={250 - (point.count / 10) * 200}
-					r="5"
-					fill="red"
-				/>
-			{/each}
-		</svg>
-	{/if}
+	<canvas id="activity-graph"></canvas>
 </div>
 
 <div class="project-list">
