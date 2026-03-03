@@ -13,6 +13,7 @@
 	let selectedProjectId: string | null = null;
 	let logData: LogEntry[] = [];
 	let projectData: any = null;
+	let activityData: any[] = [];
 
 	let progressMessage = '';
 
@@ -98,7 +99,70 @@
 		setProgress(t.projectLoaded);
 		setTimeout(() => setProgress(''), 3000);
 	}
+
+	interface GraphDataPoint {
+		project_id: string;
+		created_at: string;
+	}
+
+	async function loadActivityGraphData() {
+		// api/log without project_id returns all projects with project_id and created_at
+		const limit = 10000;
+		let results: GraphDataPoint[] = (
+			await fetch(`/admin/api/log?limit=${limit}`, {
+				method: 'GET'
+			}).then((res) => res.json())
+		).results;
+
+		// Count occurrences of project_id per day
+		const counts: Record<string, number> = {};
+		results.forEach((item) => {
+			const dateKey = item.created_at.split('T')[0]; // Group by day
+			counts[dateKey] = (counts[dateKey] || 0) + 1;
+		});
+
+		// Convert counts to array of { date, count }
+		activityData = Object.entries(counts).map(([date, count]) => ({
+			date,
+			count
+		}));
+	}
 </script>
+
+<div id="activity-graph-container">
+	<h2>Activity Graph</h2>
+	<p id="progress-message">{progressMessage}</p>
+	<button on:click={loadActivityGraphData}>Load Activity Graph Data</button>
+	<!-- // Create line graph using svg -->
+	{#if activityData.length > 0}
+		<svg width="600" height="300">
+			<!-- X and Y axis -->
+			<line x1="50" y1="250" x2="550" y2="250" stroke="black" />
+			<line x1="50" y1="50" x2="50" y2="250" stroke="black" />
+
+			<!-- Data points and lines -->
+			{#each activityData as point, index (point.date)}
+				{#if index > 0}
+					<!-- Line from previous point to current point -->
+					<line
+						x1={50 + (index - 1) * (500 / activityData.length)}
+						y1={250 - (activityData[index - 1].count / 10) * 200}
+						x2={50 + index * (500 / activityData.length)}
+						y2={250 - (point.count / 10) * 200}
+						stroke="blue"
+					/>
+				{/if}
+				<!-- Data point -->
+				<circle
+					cx={50 + index * (500 / activityData.length)}
+					cy={250 - (point.count / 10) * 200}
+					r="5"
+					fill="red"
+				/>
+			{/each}
+		</svg>
+	{/if}
+</div>
 
 <div class="project-list">
 	<h2>Projects</h2>

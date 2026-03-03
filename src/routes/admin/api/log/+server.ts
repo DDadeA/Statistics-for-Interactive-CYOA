@@ -5,11 +5,22 @@ import { json } from '@sveltejs/kit';
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
 	// Get logs from D1
 	const project_id = new URL(request.url).searchParams.get('project_id');
+	const limit = new URL(request.url).searchParams.get('limit') || '1000000';
 	if (!project_id) {
-		return new Response('Bad Request: Missing project_id', { status: 400 });
+		// Return all projects with only project_id, created_at
+		let result = await query(
+			platform,
+			'SELECT project_id, created_at FROM logs ORDER BY created_at DESC LIMIT ?',
+			[limit]
+		);
+		return json(result);
 	}
 
-	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
+	let result = await query(
+		platform,
+		'SELECT * FROM logs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?',
+		[project_id, limit]
+	);
 
 	return json(result);
 }
