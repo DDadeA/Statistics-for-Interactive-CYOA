@@ -5,7 +5,7 @@ import { json } from '@sveltejs/kit';
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
 	// Get logs from D1
 	const project_id = new URL(request.url).searchParams.get('project_id');
-	const limit = new URL(request.url).searchParams.get('limit') || '1000000';
+	const limit = new URL(request.url).searchParams.get('limit') || '5000';
 	if (!project_id) {
 		// Return all projects with only project_id, created_at
 		let result = await query(
