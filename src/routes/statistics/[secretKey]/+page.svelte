@@ -173,6 +173,21 @@
 		}
 	}
 
+	const PAGE_SIZE = 500;
+
+	async function fetchWithRetry(url: string, init: RequestInit, attempts = 4) {
+		for (let attempt = 1; ; attempt++) {
+			try {
+				const response = await fetch(url, init);
+				const retryable = response.status >= 500 || response.status === 429;
+				if (!retryable || attempt >= attempts) return response;
+			} catch (error) {
+				if (attempt >= attempts) throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+		}
+	}
+
 	async function loadData() {
 		if (!secretKey || isLoading) return;
 
@@ -185,10 +200,10 @@
 
 		try {
 			do {
-				const params = new URLSearchParams({ limit: '1000' });
+				const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
 				if (cursor) params.set('cursor', cursor);
 
-				const response = await fetch(`/api/log?${params}`, {
+				const response = await fetchWithRetry(`/api/log?${params}`, {
 					headers: { Authorization: `Bearer ${secretKey}` }
 				});
 				if (!response.ok) {

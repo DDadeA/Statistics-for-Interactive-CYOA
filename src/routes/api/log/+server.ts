@@ -50,16 +50,25 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 	const project_id = project.results[0].project_id;
 
-	const result = cursor
-		? await query(
-				platform,
-				'SELECT * FROM logs WHERE project_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
-				[project_id, Number(cursor), limit + 1]
-			)
-		: await query(platform, 'SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?', [
-				project_id,
-				limit + 1
-			]);
+	let result;
+	try {
+		result = cursor
+			? await query(
+					platform,
+					'SELECT * FROM logs WHERE project_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
+					[project_id, Number(cursor), limit + 1]
+				)
+			: await query(platform, 'SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?', [
+					project_id,
+					limit + 1
+				]);
+	} catch (error) {
+		console.error('Failed to read logs page:', error);
+		return json(
+			{ error: error instanceof Error ? error.message : 'Failed to read logs' },
+			{ status: 503 }
+		);
+	}
 
 	const hasMore = result.results.length > limit;
 	const entries = result.results.slice(0, limit);

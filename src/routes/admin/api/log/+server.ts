@@ -18,7 +18,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 	let result = await query(
 		platform,
-		'SELECT * FROM logs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?',
+		'SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?',
 		[project_id, limit]
 	);
 
