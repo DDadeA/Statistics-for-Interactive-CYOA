@@ -768,7 +768,7 @@
 						{#if word.variants.length > 10}
 							<p class="text-xs text-gray text-center mt-2">
 								+ {word.variants.length - 10}
-								{t.more || 'more'}
+								{t.more}
 							</p>
 						{/if}
 					</div>

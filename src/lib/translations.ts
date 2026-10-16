@@ -74,6 +74,8 @@ export const translations = {
 			'Correlation calculation limited to 3000 entries for performance reasons.',
 		correlationDisabled: 'Correlations are disabled.',
 		totalEntries: 'Total Entries'
+
+		more: 'more'
 	},
 	ko: {
 		toc: '목차',
@@ -147,6 +149,7 @@ export const translations = {
 		enableCorrelation: '연관성 활성화',
 		correlationDisabled: '연관성이 비활성화되었습니다.',
 		totalEntries: '총 항목 수',
-		correlationLimitMessage: '3000개의 항목으로 제한되었습니다.'
+		correlationLimitMessage: '3000개의 항목으로 제한되었습니다.',
+		more: '더보기'
 	}
 };
