@@ -78,8 +78,6 @@
 	});
 </script>
 
-</style>
-
 <!-- Choice Correlations -->
 <h2 id="correlations">{t.choiceCorrelations} (top {correlationLimit})</h2>
 <select id="correlationSort" bind:value={correlationSortFunction}>
@@ -160,5 +158,4 @@
 	.percent {
 		color: #6c757d;
 	}
-	
 </style>
