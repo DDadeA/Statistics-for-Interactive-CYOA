@@ -248,64 +248,77 @@
 		}
 		stats.medianTimeOnPage = Math.round(median);
 
-		// Distribution Buckets
-		let distribution: { label: string; count: number; percent: number }[] = [];
+		const percentile = (p: number) =>
+			times.length > 0
+				? Math.round(times[Math.min(times.length - 1, Math.floor(times.length * p))])
+				: 0;
+		const percentiles = [
+			{ label: 'P25', value: percentile(0.25) },
+			{ label: t.median, value: stats.medianTimeOnPage },
+			{ label: 'P75', value: percentile(0.75) },
+			{ label: 'P90', value: percentile(0.9) }
+		];
+
+		// Retention curve: share of sessions that stayed at least x seconds
+		let curve: {
+			path: string;
+			ticks: { x: number; label: string }[];
+			points: { x: number; seconds: number; percent: number }[];
+		} | null = null;
 		if (times.length > 0) {
-			if (isLogarithmicTime) {
-				const buckets = { '< 10s': 0, '10s - 1m': 0, '1m - 10m': 0, '10m - 1h': 0, '> 1h': 0 };
-				for (const t of times) {
-					if (t < 10) buckets['< 10s']++;
-					else if (t < 60) buckets['10s - 1m']++;
-					else if (t < 600) buckets['1m - 10m']++;
-					else if (t < 3600) buckets['10m - 1h']++;
-					else buckets['> 1h']++;
-				}
-				distribution = Object.entries(buckets).map(([label, count]) => ({
-					label,
-					count,
-					percent: (count / times.length) * 100
-				}));
-			} else {
-				const p95Index = Math.floor(times.length * 0.95);
-				const p95 = times[p95Index] || times[times.length - 1];
-				const maxVal = Math.max(p95, 60);
-				const bucketCount = 10;
-				const bucketSize = maxVal / bucketCount;
+			const POINTS = 80;
+			const xMin = isLogarithmicTime ? 1 : 0;
+			const p = isLogarithmicTime ? 0.99 : 0.95;
+			const xMax = Math.max(times[Math.min(times.length - 1, Math.floor(times.length * p))], 60);
+			const position = (seconds: number) =>
+				isLogarithmicTime
+					? Math.log(Math.max(seconds, xMin) / xMin) / Math.log(xMax / xMin)
+					: seconds / xMax;
 
-				const bucketMap: Record<string, number> = {};
-				const labels: string[] = [];
-
-				for (let i = 0; i < bucketCount; i++) {
-					const start = Math.round(i * bucketSize);
-					const end = Math.round((i + 1) * bucketSize);
-					const label = `${formatTime(start)}-${formatTime(end)}`;
-					bucketMap[label] = 0;
-					labels.push(label);
+			// Number of sessions with time >= seconds, via binary search on the sorted array
+			const countAtLeast = (seconds: number) => {
+				let lo = 0;
+				let hi = times.length;
+				while (lo < hi) {
+					const mid = (lo + hi) >> 1;
+					if (times[mid] < seconds) lo = mid + 1;
+					else hi = mid;
 				}
-				const overflow = `> ${formatTime(Math.round(maxVal))}`;
-				bucketMap[overflow] = 0;
-				labels.push(overflow);
+				return times.length - lo;
+			};
 
-				for (const t of times) {
-					if (t >= maxVal) bucketMap[overflow]++;
-					else {
-						const idx = Math.min(Math.floor(t / bucketSize), bucketCount - 1);
-						bucketMap[labels[idx]]++;
-					}
-				}
-				distribution = labels.map((label) => ({
-					label,
-					count: bucketMap[label],
-					percent: (bucketMap[label] / times.length) * 100
-				}));
-			}
+			const points = Array.from({ length: POINTS + 1 }, (_, i) => {
+				const seconds = isLogarithmicTime
+					? xMin * (xMax / xMin) ** (i / POINTS)
+					: (xMax * i) / POINTS;
+				return {
+					x: i / POINTS,
+					seconds,
+					percent: (countAtLeast(seconds) / times.length) * 100
+				};
+			});
+
+			const tickSeconds = isLogarithmicTime
+				? [1, 5, 10, 30, 60, 300, 600, 1800, 3600, 7200, 21600, 86400].filter((s) => s <= xMax)
+				: Array.from({ length: 5 }, (_, i) => Math.round((xMax * i) / 4));
+
+			curve = {
+				path: points
+					.map(
+						(pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(4)},${(100 - pt.percent).toFixed(2)}`
+					)
+					.join(' '),
+				ticks: tickSeconds.map((s) => ({ x: position(s), label: formatTime(s) })),
+				points
+			};
 		}
 
-		return { stats, distribution };
+		return { stats, percentiles, curve };
 	});
 
 	let generalStats = $derived(generalData.stats);
-	let timeDistribution = $derived(generalData.distribution);
+	let timePercentiles = $derived(generalData.percentiles);
+	let retentionCurve = $derived(generalData.curve);
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
@@ -413,30 +426,55 @@
 		return result;
 	});
 
-	// --- 7. Repeated Choices (Moved out of HTML) ---
-	let repeatedChoiceStats = $derived.by(() => {
-		const multiMap: Record<string, any> = {};
+	// --- 7. Item Quantities (items that can be added multiple times) ---
+	type QuantitySort = 'units' | 'users' | 'avg' | 'max' | 'multi';
+	let quantitySort = $state<QuantitySort>('units');
+
+	const QUANTITY_BINS = [
+		{ label: '1', test: (n: number) => n === 1, color: '#bfdbfe' },
+		{ label: '2', test: (n: number) => n === 2, color: '#93c5fd' },
+		{ label: '3-5', test: (n: number) => n >= 3 && n <= 5, color: '#3b82f6' },
+		{ label: '6+', test: (n: number) => n >= 6, color: '#1d4ed8' }
+	];
+
+	let itemQuantityStats = $derived.by(() => {
+		const byItem = new Map<string, number[]>();
 		for (const entry of filteredLogData) {
 			const vars = entry.parsedData.multipleUseVariable;
-			if (vars && Array.isArray(vars)) {
-				for (const item of vars) {
-					if (!multiMap[item.id]) {
-						multiMap[item.id] = {
-							id: item.id,
-							totalCount: 0,
-							occurrences: 0,
-							distribution: {}
-						};
-					}
-					multiMap[item.id].totalCount += item.count;
-					multiMap[item.id].occurrences++;
-					const k = item.count;
-					multiMap[item.id].distribution[k] = (multiMap[item.id].distribution[k] || 0) + 1;
-				}
+			if (!Array.isArray(vars)) continue;
+			for (const item of vars) {
+				const count = Number(item?.count);
+				if (!item?.id || !Number.isFinite(count) || count <= 0) continue;
+				const list = byItem.get(item.id);
+				if (list) list.push(count);
+				else byItem.set(item.id, [count]);
 			}
 		}
-		const result = Object.values(multiMap).sort((a: any, b: any) => b.totalCount - a.totalCount);
-		return result;
+
+		const totalEntries = Math.max(filteredLogData.length, 1);
+		const rows = [...byItem.entries()].map(([id, counts]) => {
+			const sorted = [...counts].sort((a, b) => a - b);
+			const units = sorted.reduce((sum, n) => sum + n, 0);
+			const mid = Math.floor(sorted.length / 2);
+			const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+			return {
+				id,
+				users: counts.length,
+				adoption: (counts.length / totalEntries) * 100,
+				units,
+				avg: units / counts.length,
+				median,
+				max: sorted[sorted.length - 1],
+				multi: (counts.filter((n) => n > 1).length / counts.length) * 100,
+				bins: QUANTITY_BINS.map((bin) => ({
+					label: bin.label,
+					color: bin.color,
+					count: counts.filter(bin.test).length
+				}))
+			};
+		});
+
+		return rows.sort((a, b) => b[quantitySort] - a[quantitySort]);
 	});
 
 	// --- 8. All Known Choices List ---
@@ -686,7 +724,7 @@
 		</div>
 	</div>
 
-	<!-- Time Distribution -->
+	<!-- Time on Page -->
 	<h2 id="time-distribution">
 		{t.timeOnPageDistribution}
 		<span class="text-sm font-normal text-gray ml-2">
@@ -701,23 +739,48 @@
 		</label>
 	</h2>
 	<div class="chart-container">
-		{#if timeDistribution.length > 0}
-			{@const maxCount = Math.max(...timeDistribution.map((d) => d.count), 1)}
-			<div class="distribution-chart">
-				{#each timeDistribution as d}
-					<div class="dist-bar-container">
-						<div class="dist-label">{d.label}</div>
-						<div class="dist-bar-wrapper">
-							<div
-								class="dist-bar"
-								style="width: {(d.count / maxCount) * 100}%"
-								title="{d.count} {t.users} ({d.percent.toFixed(1)}%)"
-							></div>
-							<span class="dist-value">{d.count} ({d.percent.toFixed(1)}%)</span>
-						</div>
+		{#if retentionCurve}
+			<p class="text-sm text-gray" style="margin-bottom: 0.75rem;">{t.retentionHint}</p>
+			<div class="percentile-row">
+				{#each timePercentiles as item}
+					<div class="percentile-card">
+						<span class="meta-label">{item.label}</span>
+						<span class="meta-value">{formatTime(item.value)}</span>
 					</div>
 				{/each}
 			</div>
+			<svg class="retention-chart" viewBox="0 0 640 260" role="img" aria-label={t.retentionHint}>
+				<g transform="translate(48 12)">
+					{#each [0, 25, 50, 75, 100] as tick}
+						<line
+							x1="0"
+							x2="570"
+							y1={216 - (tick / 100) * 216}
+							y2={216 - (tick / 100) * 216}
+							class="grid-line"
+						/>
+						<text x="-8" y={220 - (tick / 100) * 216} text-anchor="end" class="axis-text"
+							>{tick}%</text
+						>
+					{/each}
+					{#each retentionCurve.ticks as tick}
+						<text x={tick.x * 570} y="236" text-anchor="middle" class="axis-text">{tick.label}</text
+						>
+					{/each}
+					<g transform="scale(570 2.16)">
+						<path d={`${retentionCurve.path} L1,100 L0,100 Z`} class="curve-area" />
+						<path d={retentionCurve.path} class="curve-line" vector-effect="non-scaling-stroke" />
+					</g>
+					{#each retentionCurve.points as pt}
+						<rect x={pt.x * 570 - 4} y="0" width="8" height="216" fill="transparent">
+							<title
+								>{pt.percent.toFixed(1)}% {t.stayedAtLeast}
+								{formatTime(Math.round(pt.seconds))}</title
+							>
+						</rect>
+					{/each}
+				</g>
+			</svg>
 		{:else}
 			<p class="text-gray italic">{t.noTimeData}</p>
 		{/if}
@@ -773,62 +836,98 @@
 		{/if}
 	</div>
 
-	<!-- Repeated Choices -->
-	<h2 id="repeated-choices">{t.repeatedChoices || 'Repeated Choices'}</h2>
+	<!-- Item Quantities -->
+	<h2 id="repeated-choices">{t.repeatedChoices}</h2>
 	<div class="multiple-use-container">
-		{#if repeatedChoiceStats.length > 0}
-			<div class="repeated-choices-list">
-				{#each repeatedChoiceStats as item}
-					{@const obj = objectMap[item.id]}
-					{@const maxDist = Math.max(...Object.values(item.distribution as Record<string, number>))}
-					<div class="repeated-choice-row">
-						<div class="choice-header">
-							{#if obj && obj.image}
-								<img
-									src={obj.image.startsWith('http') || obj.image.startsWith('data:')
-										? obj.image
-										: original_url + obj.image}
-									alt={obj.title}
-									class="choice-image"
-								/>
-							{/if}
-							<div class="choice-details">
-								<h3>{obj ? obj.title || item.id : item.id}</h3>
-								{#if obj && obj.text}
-									<p class="text-sm text-gray">{obj.text}</p>
-								{/if}
-							</div>
-							<div class="choice-meta">
-								<div class="meta-item">
-									<span class="meta-label">{t.totalSelections || 'Total Selections'}</span>
-									<span class="meta-value">{item.totalCount}</span>
-								</div>
-								<div class="meta-item">
-									<span class="meta-label">{t.users || 'Users'}</span>
-									<span class="meta-value">{item.occurrences}</span>
-								</div>
-							</div>
-						</div>
-						<div class="choice-distribution">
-							{#each Object.entries(item.distribution).sort((a, b) => Number(a[0]) - Number(b[0])) as [count, userCount]}
-								<div class="dist-row">
-									<span class="dist-label">{count}x</span>
-									<div class="dist-bar-bg">
-										<div
-											class="dist-bar-fill"
-											style="width: {(Number(userCount) / maxDist) * 100}%"
-											title="{userCount} users selected this {count} times"
-										></div>
-									</div>
-									<span class="dist-count">{userCount}</span>
-								</div>
-							{/each}
-						</div>
-					</div>
+		{#if itemQuantityStats.length > 0}
+			<p class="text-sm text-gray" style="margin-bottom: 0.75rem;">{t.itemQuantitiesHint}</p>
+			<div class="quantity-legend">
+				{#each QUANTITY_BINS as bin}
+					<span><i style="background: {bin.color}"></i>{bin.label}</span>
 				{/each}
 			</div>
+			<div class="quantity-table-wrapper">
+				<table class="quantity-table">
+					<thead>
+						<tr>
+							<th>{t.item}</th>
+							<th>
+								<button
+									class:active={quantitySort === 'users'}
+									onclick={() => (quantitySort = 'users')}>{t.takenBy}</button
+								>
+							</th>
+							<th>
+								<button class:active={quantitySort === 'avg'} onclick={() => (quantitySort = 'avg')}
+									>{t.avgQuantity}</button
+								>
+							</th>
+							<th>
+								<button class:active={quantitySort === 'max'} onclick={() => (quantitySort = 'max')}
+									>{t.maxQuantity}</button
+								>
+							</th>
+							<th>
+								<button
+									class:active={quantitySort === 'units'}
+									onclick={() => (quantitySort = 'units')}>{t.totalUnits}</button
+								>
+							</th>
+							<th>
+								<button
+									class:active={quantitySort === 'multi'}
+									onclick={() => (quantitySort = 'multi')}>{t.tookMoreThanOne}</button
+								>
+							</th>
+							<th>{t.quantitySplit}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each itemQuantityStats as item (item.id)}
+							{@const obj = objectMap[item.id]}
+							<tr>
+								<td class="item-cell">
+									{#if obj && obj.image}
+										<img
+											src={obj.image.startsWith('http') || obj.image.startsWith('data:')
+												? obj.image
+												: original_url + obj.image}
+											alt={obj.title}
+											class="choice-image"
+										/>
+									{/if}
+									<span class="break-words">{obj ? obj.title || item.id : item.id}</span>
+								</td>
+								<td>{item.users} <span class="text-gray">({item.adoption.toFixed(1)}%)</span></td>
+								<td
+									>{item.avg.toFixed(1)}
+									<span class="text-gray">({t.median} {item.median})</span></td
+								>
+								<td>{item.max}</td>
+								<td>{item.units}</td>
+								<td>{item.multi.toFixed(0)}%</td>
+								<td class="split-cell">
+									<div class="stacked-bar">
+										{#each item.bins as bin}
+											{#if bin.count > 0}
+												<div
+													style="width: {(bin.count / item.users) * 100}%; background: {bin.color}"
+													title="{bin.label}x: {bin.count} ({(
+														(bin.count / item.users) *
+														100
+													).toFixed(0)}%)"
+												></div>
+											{/if}
+										{/each}
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{:else}
-			<p class="text-gray italic">{t.noMultipleUseData || 'No repeated choices'}</p>
+			<p class="text-gray italic">{t.noMultipleUseData}</p>
 		{/if}
 	</div>
 
@@ -1222,38 +1321,50 @@
 		height: 2px;
 		margin-top: 0.4rem;
 	}
-	.distribution-chart {
+	.percentile-row {
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.75rem;
+	}
+	.percentile-card {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		padding: 0.5rem 1rem;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		min-width: 80px;
 	}
-	.dist-bar-container {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
+	.meta-label {
+		font-size: 0.75rem;
+		color: #6b7280;
 	}
-	.dist-label {
-		width: 80px;
-		text-align: right;
-		font-size: 0.875rem;
-		color: #666;
+	.meta-value {
+		font-size: 1.25rem;
+		font-weight: bold;
+		color: #2563eb;
 	}
-	.dist-bar-wrapper {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+	.retention-chart {
+		width: 100%;
+		max-width: 720px;
+		height: auto;
 	}
-	.dist-bar {
-		height: 1.5rem;
-		background-color: #3b82f6;
-		border-radius: 0.25rem;
-		min-width: 2px;
+	.retention-chart .grid-line {
+		stroke: #e5e7eb;
+		stroke-width: 1;
 	}
-	.dist-value {
-		font-size: 0.875rem;
-		color: #666;
-		white-space: nowrap;
+	.retention-chart .axis-text {
+		font-size: 11px;
+		fill: #6b7280;
+	}
+	.retention-chart .curve-line {
+		fill: none;
+		stroke: #2563eb;
+		stroke-width: 2;
+	}
+	.retention-chart .curve-area {
+		fill: rgba(59, 130, 246, 0.15);
 	}
 	.ml-2 {
 		margin-left: 0.5rem;
@@ -1310,94 +1421,78 @@
 	.multiple-use-container {
 		margin-bottom: 2rem;
 	}
-	.repeated-choices-list {
+	.quantity-legend {
 		display: flex;
-		flex-direction: column;
 		gap: 1rem;
+		font-size: 0.75rem;
+		color: #6b7280;
+		margin-bottom: 0.5rem;
 	}
-	.repeated-choice-row {
-		background-color: white;
+	.quantity-legend i {
+		display: inline-block;
+		width: 0.75rem;
+		height: 0.75rem;
+		border-radius: 2px;
+		margin-right: 0.25rem;
+		vertical-align: middle;
+	}
+	.quantity-table-wrapper {
+		overflow-x: auto;
+		background: white;
 		border: 1px solid #e5e7eb;
 		border-radius: 0.5rem;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
 	}
-	.choice-header {
+	.quantity-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.875rem;
+	}
+	.quantity-table th,
+	.quantity-table td {
+		padding: 0.5rem 0.75rem;
+		text-align: left;
+		border-bottom: 1px solid #f3f4f6;
+		white-space: nowrap;
+	}
+	.quantity-table th button {
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		font-weight: 600;
+		color: #6b7280;
+		cursor: pointer;
+	}
+	.quantity-table th button.active {
+		color: #2563eb;
+	}
+	.quantity-table th button.active::after {
+		content: ' ↓';
+	}
+	.item-cell {
 		display: flex;
-		gap: 1rem;
-		align-items: flex-start;
+		align-items: center;
+		gap: 0.75rem;
+		white-space: normal;
+		min-width: 180px;
 	}
 	.choice-image {
-		width: 60px;
-		height: 60px;
+		width: 40px;
+		height: 40px;
 		object-fit: cover;
 		border-radius: 0.25rem;
 		flex-shrink: 0;
 	}
-	.choice-details {
-		flex: 1;
+	.split-cell {
+		min-width: 160px;
+		width: 30%;
 	}
-	.choice-details h3 {
-		margin: 0 0 0.25rem 0;
-		font-size: 1.1rem;
-	}
-	.choice-meta {
+	.stacked-bar {
 		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		min-width: 120px;
-		text-align: right;
-	}
-	.meta-item {
-		display: flex;
-		flex-direction: column;
-	}
-	.meta-label {
-		font-size: 0.75rem;
-		color: #6b7280;
-	}
-	.meta-value {
-		font-size: 1.25rem;
-		font-weight: bold;
-		color: #2563eb;
-	}
-	.choice-distribution {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		padding-left: 1rem;
-		border-left: 2px solid #e5e7eb;
-	}
-	.dist-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.875rem;
-	}
-	.dist-label {
-		width: 30px;
-		text-align: right;
-		color: #6b7280;
-		font-weight: 500;
-	}
-	.dist-bar-bg {
-		flex: 1;
-		height: 1.25rem;
-		background-color: #f3f4f6;
+		height: 1rem;
 		border-radius: 0.25rem;
 		overflow: hidden;
-	}
-	.dist-bar-fill {
-		height: 100%;
-		background-color: #3b82f6;
-		border-radius: 0.25rem;
-		min-width: 2px;
-	}
-	.dist-count {
-		width: 40px;
-		color: #6b7280;
+		background: #f3f4f6;
 	}
 	.card-content {
 		background-color: #f9fafb;
