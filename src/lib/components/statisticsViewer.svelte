@@ -106,9 +106,19 @@
 	const MAX_URL_OPTIONS = 20;
 	let selectedUrl = '';
 
-	// Page URLs found in the logs, most common first
-	function countUrls(entries: LogEntry[]): { url: string; count: number }[] {
-		const urlCount = new Map<string, number>();
+	// Strips the auto-generated `#%22...` (url-encoded quote) fragment appended by the logger fallback
+	const BLOB_FRAGMENT = /#(?:%22|").*$/s;
+
+	interface UrlOption {
+		url: string;
+		count: number;
+		/** True if any merged entry carried a `#%22...` fragment that was removed. */
+		hadBlob: boolean;
+	}
+
+	// Page URLs found in the logs (blob fragment removed), most common first
+	function countUrls(entries: LogEntry[]): UrlOption[] {
+		const urls = new Map<string, UrlOption>();
 		for (const entry of entries) {
 			let entryURL: string | undefined;
 			try {
@@ -120,12 +130,18 @@
 				continue;
 			}
 			if (typeof entryURL !== 'string' || !entryURL) continue;
-			urlCount.set(entryURL, (urlCount.get(entryURL) ?? 0) + 1);
+
+			const cleaned = entryURL.replace(BLOB_FRAGMENT, '');
+			const hadBlob = cleaned !== entryURL;
+			const option = urls.get(cleaned);
+			if (option) {
+				option.count++;
+				option.hadBlob ||= hadBlob;
+			} else {
+				urls.set(cleaned, { url: cleaned, count: 1, hadBlob });
+			}
 		}
-		return [...urlCount.entries()]
-			.map(([url, count]) => ({ url, count }))
-			.sort((a, b) => b.count - a.count)
-			.slice(0, MAX_URL_OPTIONS);
+		return [...urls.values()].sort((a, b) => b.count - a.count).slice(0, MAX_URL_OPTIONS);
 	}
 
 	$: urlOptions = countUrls(logData);
