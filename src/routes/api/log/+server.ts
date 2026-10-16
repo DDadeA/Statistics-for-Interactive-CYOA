@@ -41,7 +41,11 @@ export async function GET({ request, platform }: { request: Request; platform: A
 
 	const project_id = project.results[0].project_id;
 
-	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
+	let result = await query(
+		platform,
+		'SELECT * FROM logs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?',
+		[project_id, 10000]
+	);
 
 	return json(result);
 }
