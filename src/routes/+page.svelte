@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { countData } from '$lib/types';
 
 	interface Project {
 		projectId: string;
@@ -13,7 +14,12 @@
 	let selectedProject: Project | null = null;
 	let origin = '';
 
-	let adjustedTotalTime = 0;
+	let count_data: countData = {
+		total_time_ms: 0,
+		uid_count: 0,
+		project_count: 0,
+		build_count: 0
+	};
 	let newProjectEmail = '';
 	let isCreating = false;
 
@@ -30,9 +36,17 @@
 			const res = await fetch('/api/count');
 			if (res.ok) {
 				const data = await res.json();
-				adjustedTotalTime = data.adjustedTotalTime / 1000 / 60 / 60; // Convert ms to hours
+				let total_time_hr = data.total_time_ms / 1000 / 60 / 60; // Convert ms to hours
+
 				// Round to 1 decimal place
-				adjustedTotalTime = Math.round(adjustedTotalTime * 10) / 10;
+				total_time_hr = Math.round(total_time_hr * 10) / 10;
+
+				count_data = {
+					total_time_ms: total_time_hr,
+					uid_count: data.uid_count,
+					project_count: data.project_count,
+					build_count: data.build_count
+				};
 			}
 		} catch (e) {
 			console.error('Failed to fetch count', e);
@@ -112,8 +126,14 @@
 			<p class="subtitle">Empower your interactive stories with real-time analytics.</p>
 
 			<div class="stat-container">
-				<div class="stat-value">{adjustedTotalTime.toLocaleString()}</div>
+				<div class="stat-value">{count_data.total_time_ms.toLocaleString()}</div>
 				<div class="stat-label">hours recorded</div>
+				<br />
+				<div class="stat-value">{count_data.uid_count.toLocaleString()}</div>
+				<div class="stat-label">unique users</div>
+				<br />
+				<div class="stat-value">{count_data.project_count.toLocaleString()}</div>
+				<div class="stat-label">projects registered</div>
 			</div>
 
 			<div class="hero-actions">

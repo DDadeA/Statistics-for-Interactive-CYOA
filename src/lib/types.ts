@@ -24,4 +24,16 @@ interface correlationObject {
 	lift: number;
 }
 
-export type { LogEntry, correlationObject };
+interface Word {
+	id: string;
+	replaceText: string;
+}
+
+interface countData {
+	total_time_ms: number;
+	uid_count: number;
+	project_count: number;
+	build_count: number;
+}
+
+export type { LogEntry, correlationObject, Word, countData };

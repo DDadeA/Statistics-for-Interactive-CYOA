@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { translations } from '$lib/translations';
-	import { ProcessingData } from '$lib/utils';
-	import type { LogEntry, correlationObject } from '$lib/types';
+	import type { LogEntry, Word } from '$lib/types';
+	import CorrelationTable from './correlationTable.svelte';
 
 	// 1. Svelte 5 Props
 	let { logData = [], projectData = null, progressMessage = '', currentLang = 'en' } = $props();
@@ -11,45 +11,8 @@
 	let timeRange = $state('all'); // 'all', '24h', '7d', '30d'
 	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let selectedFilterChoice = $state('');
-	let selectedFilterChoiceCount = $state(3);
+	let selectedFilterChoiceCount = $state(0);
 	let isLogarithmicTime = $state(false);
-
-	let enableCorrelation = $state(false);
-	let correlationLimit = $state(10);
-
-	// Correlation Sorting Function State
-	const correlationSortOptions = [
-		{
-			label: 'Log-Weighted Lift (Balanced Heuristic)',
-			value: (a: correlationObject, b: correlationObject) =>
-				calcLogWeightedLift(b) - calcLogWeightedLift(a)
-		},
-		{
-			label: 'Jaccard Index (Intersection over Union)',
-			value: (a: correlationObject, b: correlationObject) => calcJaccard(b) - calcJaccard(a)
-		},
-		{
-			label: 'Cosine Similarity',
-			value: (a: correlationObject, b: correlationObject) => calcCosine(b) - calcCosine(a)
-		},
-		{
-			label: 'Frequency-weighted Lift',
-			value: (a: correlationObject, b: correlationObject) => b.lift * b.count - a.lift * a.count
-		},
-		{
-			label: 'Lift (Basic Probability Ratio)',
-			value: (a: correlationObject, b: correlationObject) => b.lift - a.lift
-		},
-		{
-			label: 'Co-Occurrence Percentage',
-			value: (a: correlationObject, b: correlationObject) => b.percent - a.percent
-		},
-		{
-			label: 'Co-Occurrence Count',
-			value: (a: correlationObject, b: correlationObject) => b.count - a.count
-		}
-	];
-	let correlationSortFunction = $state(correlationSortOptions[0].value);
 
 	// 3. Derived Helpers
 	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
@@ -58,39 +21,32 @@
 	);
 
 	// =================================================================================================
-	// 4. DATA PROCESSING PIPELINE (Optimized)
+	// 4. DATA PROCESSING PIPELINE
 	// =================================================================================================
-
-	// Step A: Parse JSON once ($derived automatically caches this)
-	// This prevents JSON.parse from running thousands of times during renders.
 	let parsedLogData: LogEntry[] = $derived(
 		logData.map((entry) => {
-			let d: any = {};
-			try {
-				d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-
-				// Optimization: Pre-sort choices once here to avoid sorting in the O(N) loop later
-				if (d?.selectedChoices?.length) {
-					// Copy to avoid mutating original if it was passed as object
-					d.selectedChoices = [...d.selectedChoices].sort();
+			let parsedData = entry.parsedData;
+			if (parsedData == null) {
+				try {
+					parsedData = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+				} catch {
+					parsedData = {};
 				}
-			} catch (e) {
-				/* ignore */
 			}
 
+			if (Array.isArray(parsedData?.selectedChoices)) {
+				parsedData = { ...parsedData, selectedChoices: [...parsedData.selectedChoices].sort() };
+			}
 			return {
 				...entry,
 				data: null, // Free up memory
-				parsedData: d, // Store parsed data
-				timestamp: new Date(entry.created_at).getTime() // Store numeric timestamp for fast filtering
+				parsedData: parsedData || {},
+				timestamp: entry.timestamp ?? new Date(entry.created_at).getTime()
 			};
 		})
 	);
 
-	// Step B: Apply Filters (Time, Unique User, Choice)
 	let filteredLogData = $derived.by(() => {
-		// console.log('(B) Applying filters to log data...');
-		console.time('(B) Applying filters to log data...');
 		let data = parsedLogData;
 
 		// 1. Time Filter (Numeric comparison is faster)
@@ -100,23 +56,10 @@
 			if (timeRange === '24h') cutoff -= 24 * 60 * 60 * 1000;
 			if (timeRange === '7d') cutoff -= 7 * 24 * 60 * 60 * 1000;
 			if (timeRange === '30d') cutoff -= 30 * 24 * 60 * 60 * 1000;
-			data = data.filter((e) => e.timestamp ?? 0 >= cutoff);
+			data = data.filter((e) => (e.timestamp ?? 0) >= cutoff);
 		}
 
-		// 2. Unique Users
-		if (uniqueUsersOnly) {
-			const latestEntries = new Map();
-			let uidSet = new Set();
-			for (const entry of data) {
-				if (!uidSet.has(entry.uid)) {
-					latestEntries.set(entry.uid, entry);
-					uidSet.add(entry.uid);
-				}
-			}
-			data = Array.from(latestEntries.values());
-		}
-
-		// 3. Filter by Choice
+		// 2. Filter by Choice
 		if (selectedFilterChoice != '') {
 			data = data.filter(
 				(entry) =>
@@ -133,13 +76,21 @@
 			);
 		}
 
-		console.timeEnd('(B) Applying filters to log data...');
+		// 3. Keep the latest matching record for each user.
+		if (uniqueUsersOnly) {
+			const latestEntries = new Map<string, LogEntry>();
+			for (const entry of data) {
+				if (!latestEntries.has(entry.uid)) latestEntries.set(entry.uid, entry);
+			}
+			data = Array.from(latestEntries.values());
+		}
+
 		return data;
 	});
 
-	// Step C: Global Choice Counts (Lookup Table)
+	let uniqueVisitorCount = $derived(new Set(filteredLogData.map((entry) => entry.uid)).size);
+
 	let statisticsCounts = $derived.by(() => {
-		console.time('(C) Calculating global statistics counts...');
 		const counts: Record<string, number> = {};
 		for (const entry of filteredLogData) {
 			const choices = entry.parsedData.selectedChoices;
@@ -149,13 +100,10 @@
 				}
 			}
 		}
-		console.timeEnd('(C) Calculating global statistics counts...');
 		return counts;
 	});
 
-	// Step D: Object Map for Title/Image Lookups
 	let objectMap = $derived.by(() => {
-		console.time('(D) Building object map...');
 		const map: Record<string, any> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -166,13 +114,10 @@
 				}
 			}
 		}
-		console.timeEnd('(D) Building object map...');
 		return map;
 	});
 
-	// Step E: Object ID to Row ID Map
 	let objectToRowMap = $derived.by(() => {
-		console.time('(E) Building object to row map...');
 		const map: Record<string, { id: string; title: string }> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -183,7 +128,6 @@
 				}
 			}
 		}
-		console.timeEnd('(E) Building object to row map...');
 		return map;
 	});
 
@@ -193,8 +137,7 @@
 
 	// --- 1. Visitor Graph ---
 	let visitorGraphData = $derived.by(() => {
-		console.time('(1) Visitor Graph Calculation Time');
-		const groupedData: Record<string, number> = {};
+		const groupedData: Record<string, Set<string>> = {};
 
 		for (const entry of filteredLogData) {
 			const date = new Date(entry.timestamp ?? 0);
@@ -213,7 +156,8 @@
 				date.setHours(0, 0, 0, 0);
 				key = date.toISOString();
 			}
-			groupedData[key] = (groupedData[key] || 0) + 1;
+			groupedData[key] ??= new Set();
+			groupedData[key].add(entry.uid);
 		}
 
 		let sorted = Object.entries(groupedData)
@@ -224,21 +168,44 @@
 					label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:00`;
 				else label = `${date.getMonth() + 1}/${date.getDate()}`;
 
-				return { date: dateStr, count, timestamp: date.getTime(), label, accumulated: 0 };
+				return {
+					date: dateStr,
+					count: count.size,
+					visitors: count,
+					timestamp: date.getTime(),
+					label,
+					accumulated: 0
+				};
 			})
 			.sort((a, b) => a.timestamp - b.timestamp);
 
-		let sum = 0;
-		console.timeEnd('(1) Visitor Graph Calculation Time');
+		const maxGraphPoints = 120;
+		if (sorted.length > maxGraphPoints) {
+			const bucketSize = Math.ceil(sorted.length / maxGraphPoints);
+			sorted = Array.from({ length: Math.ceil(sorted.length / bucketSize) }, (_, index) => {
+				const start = index * bucketSize;
+				const group = sorted.slice(start, start + bucketSize);
+				const first = group[0];
+				const last = group[group.length - 1];
+				const visitors = new Set(group.flatMap((item) => [...item.visitors]));
+				return {
+					...first,
+					count: visitors.size,
+					visitors,
+					label: `${first.label}–${last.label}`
+				};
+			});
+		}
+
+		const accumulatedVisitors = new Set<string>();
 		return sorted.map((item) => {
-			sum += item.count;
-			return { ...item, accumulated: sum };
+			for (const visitor of item.visitors) accumulatedVisitors.add(visitor);
+			return { ...item, accumulated: accumulatedVisitors.size };
 		});
 	});
 
 	// --- 2. General Stats & Time Distribution ---
 	let generalData = $derived.by(() => {
-		console.time('(2) General Stats Calculation Time');
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
@@ -281,132 +248,81 @@
 		}
 		stats.medianTimeOnPage = Math.round(median);
 
-		// Distribution Buckets
-		let distribution: { label: string; count: number; percent: number }[] = [];
+		const percentile = (p: number) =>
+			times.length > 0
+				? Math.round(times[Math.min(times.length - 1, Math.floor(times.length * p))])
+				: 0;
+		const percentiles = [
+			{ label: 'P25', value: percentile(0.25) },
+			{ label: t.median, value: stats.medianTimeOnPage },
+			{ label: 'P75', value: percentile(0.75) },
+			{ label: 'P90', value: percentile(0.9) }
+		];
+
+		// Retention curve: share of sessions that stayed at least x seconds
+		let curve: {
+			path: string;
+			ticks: { x: number; label: string }[];
+			points: { x: number; seconds: number; percent: number }[];
+		} | null = null;
 		if (times.length > 0) {
-			if (isLogarithmicTime) {
-				const buckets = { '< 10s': 0, '10s - 1m': 0, '1m - 10m': 0, '10m - 1h': 0, '> 1h': 0 };
-				for (const t of times) {
-					if (t < 10) buckets['< 10s']++;
-					else if (t < 60) buckets['10s - 1m']++;
-					else if (t < 600) buckets['1m - 10m']++;
-					else if (t < 3600) buckets['10m - 1h']++;
-					else buckets['> 1h']++;
-				}
-				distribution = Object.entries(buckets).map(([label, count]) => ({
-					label,
-					count,
-					percent: (count / times.length) * 100
-				}));
-			} else {
-				const p95Index = Math.floor(times.length * 0.95);
-				const p95 = times[p95Index] || times[times.length - 1];
-				const maxVal = Math.max(p95, 60);
-				const bucketCount = 10;
-				const bucketSize = maxVal / bucketCount;
+			const POINTS = 80;
+			const xMin = isLogarithmicTime ? 1 : 0;
+			const p = isLogarithmicTime ? 0.99 : 0.95;
+			const xMax = Math.max(times[Math.min(times.length - 1, Math.floor(times.length * p))], 60);
+			const position = (seconds: number) =>
+				isLogarithmicTime
+					? Math.log(Math.max(seconds, xMin) / xMin) / Math.log(xMax / xMin)
+					: seconds / xMax;
 
-				const bucketMap: Record<string, number> = {};
-				const labels: string[] = [];
-
-				for (let i = 0; i < bucketCount; i++) {
-					const start = Math.round(i * bucketSize);
-					const end = Math.round((i + 1) * bucketSize);
-					const label = `${formatTime(start)}-${formatTime(end)}`;
-					bucketMap[label] = 0;
-					labels.push(label);
+			// Number of sessions with time >= seconds, via binary search on the sorted array
+			const countAtLeast = (seconds: number) => {
+				let lo = 0;
+				let hi = times.length;
+				while (lo < hi) {
+					const mid = (lo + hi) >> 1;
+					if (times[mid] < seconds) lo = mid + 1;
+					else hi = mid;
 				}
-				const overflow = `> ${formatTime(Math.round(maxVal))}`;
-				bucketMap[overflow] = 0;
-				labels.push(overflow);
+				return times.length - lo;
+			};
 
-				for (const t of times) {
-					if (t >= maxVal) bucketMap[overflow]++;
-					else {
-						const idx = Math.min(Math.floor(t / bucketSize), bucketCount - 1);
-						bucketMap[labels[idx]]++;
-					}
-				}
-				distribution = labels.map((label) => ({
-					label,
-					count: bucketMap[label],
-					percent: (bucketMap[label] / times.length) * 100
-				}));
-			}
+			const points = Array.from({ length: POINTS + 1 }, (_, i) => {
+				const seconds = isLogarithmicTime
+					? xMin * (xMax / xMin) ** (i / POINTS)
+					: (xMax * i) / POINTS;
+				return {
+					x: i / POINTS,
+					seconds,
+					percent: (countAtLeast(seconds) / times.length) * 100
+				};
+			});
+
+			const tickSeconds = isLogarithmicTime
+				? [1, 5, 10, 30, 60, 300, 600, 1800, 3600, 7200, 21600, 86400].filter((s) => s <= xMax)
+				: Array.from({ length: 5 }, (_, i) => Math.round((xMax * i) / 4));
+
+			curve = {
+				path: points
+					.map(
+						(pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(4)},${(100 - pt.percent).toFixed(2)}`
+					)
+					.join(' '),
+				ticks: tickSeconds.map((s) => ({ x: position(s), label: formatTime(s) })),
+				points
+			};
 		}
 
-		console.timeEnd('(2) General Stats Calculation Time');
-		return { stats, distribution };
+		return { stats, percentiles, curve };
 	});
 
 	let generalStats = $derived(generalData.stats);
-	let timeDistribution = $derived(generalData.distribution);
-
-	// --- 3. Correlations (Optimized) ---
-	let topCorrelations = $derived.by(() => {
-		if (!enableCorrelation) return [];
-		if (projectData == null) return [];
-		if (filteredLogData.length === 0) return [];
-
-		console.time('(3-1) Correlations Calculation Time');
-		const pairCounts = new Map<string, number>();
-		const totalEntries = filteredLogData.length;
-
-		for (const entry of filteredLogData) {
-			const choices = entry.parsedData.selectedChoices;
-			if (!choices || choices.length < 2) continue;
-
-			// Choices are already sorted in parsedLogData (Step A)
-			const len = choices.length;
-
-			// O(Choices^2) per user, but O(N * C^2) total.
-			for (let i = 0; i < len; i++) {
-				const choiceA = choices[i];
-				for (let j = i + 1; j < len; j++) {
-					const key = `${choiceA}|${choices[j]}`;
-					pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
-				}
-			}
-		}
-
-		const correlations = Array.from(pairCounts.entries()).map(([key, count]) => {
-			const [idA, idB] = key.split('|');
-			const countA = statisticsCounts[idA] || 0;
-			const countB = statisticsCounts[idB] || 0;
-
-			const percent = (count / totalEntries) * 100;
-			const probA = countA / totalEntries;
-			const probB = countB / totalEntries;
-			const lift = probA * probB > 0 ? percent / 100 / (probA * probB) : 0;
-
-			return { idA, idB, count, percent, probA, probB, lift };
-		});
-		console.timeEnd('(3-1) Correlations Calculation Time');
-		return correlations;
-	});
-
-	let sortedTopCorrelations = $derived.by(() => {
-		console.time('(3-2) Correlation Sorting Time');
-
-		// Create a copy to make sure it's reactive
-		const correlationsCopy = [...topCorrelations];
-		const sorted = correlationsCopy.sort(correlationSortFunction);
-		console.timeEnd('(3-2) Correlation Sorting Time');
-		return sorted;
-	});
-
-	let slicedSortedTopCorrelations = $derived.by(() => {
-		console.time('(3-3) Correlation Slicing Time');
-
-		const sliced = sortedTopCorrelations.slice(0, correlationLimit);
-		console.timeEnd('(3-3) Correlation Slicing Time');
-		return sliced;
-	});
+	let timePercentiles = $derived(generalData.percentiles);
+	let retentionCurve = $derived(generalData.curve);
 
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
 		if (!projectData?.rows) return [];
-		console.time('(4) Row Statistics Calculation Time');
-
 		const result = projectData.rows.map((row: any) => {
 			const rowObjects = row.objects || [];
 			let rowTotal = 0;
@@ -434,15 +350,12 @@
 				objectStats: enrichedStats
 			};
 		});
-		console.timeEnd('(4) Row Statistics Calculation Time');
 		return result;
 	});
 
 	// --- 5. Exit Statistics ---
 	let exitRowStats = $derived.by(() => {
-		// console.log('(5) Calculating exit row statistics...');
 		if (filteredLogData.length === 0 || Object.keys(objectToRowMap).length === 0) return [];
-		console.time('(5) Exit Row Statistics Calculation Time');
 
 		const exitCounts: Record<string, number> = {};
 		let validExits = 0;
@@ -471,41 +384,34 @@
 			})
 			.sort((a, b) => b.count - a.count);
 
-		console.timeEnd('(5) Exit Row Statistics Calculation Time');
 		return result;
 	});
 
-	interface Word {
-		id: string;
-		replaceText: string;
-	}
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
-		console.time('(6) User Word Statistics Calculation Time');
 		const wordStat: Record<string, Record<string, number>> = {};
 
 		for (const entry of filteredLogData) {
-			const words = entry.parsedData.words as Word[];
+			const words = entry.parsedData?.words as Word[] | undefined;
 			if (words && Array.isArray(words)) {
 				for (const word of words) {
 					if (word.replaceText == null) continue;
-					if (word.replaceText.trim() === '') word.replaceText = '(empty)';
-					word.replaceText = word.replaceText.trim();
+					const replaceText = word.replaceText.trim() || '(empty)';
 
 					// Register word occurrence
 					if (!wordStat[word.id]) {
-						wordStat[word.id] = { [`${word.replaceText}`]: 1 };
+						wordStat[word.id] = { [replaceText]: 1 };
 						continue;
 					}
 
 					const wordObj = wordStat[word.id];
 					// Register replaceText occurrence
-					if (!wordObj[word.replaceText]) {
-						wordObj[word.replaceText] = 1;
+					if (!wordObj[replaceText]) {
+						wordObj[replaceText] = 1;
 						continue;
 					}
 
-					wordObj[word.replaceText] += 1;
+					wordObj[replaceText] += 1;
 				}
 			}
 		}
@@ -517,39 +423,58 @@
 			return { id, totalCount, variants: variantArray };
 		});
 
-		console.timeEnd('(6) User Word Statistics Calculation Time');
-		console.log('Word Statistics:', result);
 		return result;
 	});
 
-	// --- 7. Repeated Choices (Moved out of HTML) ---
-	let repeatedChoiceStats = $derived.by(() => {
-		// console.log('(7) Calculating repeated choice statistics...');
-		console.time('(7) Repeated Choice Statistics Calculation Time');
+	// --- 7. Item Quantities (items that can be added multiple times) ---
+	type QuantitySort = 'units' | 'users' | 'avg' | 'max' | 'multi';
+	let quantitySort = $state<QuantitySort>('units');
 
-		const multiMap: Record<string, any> = {};
+	const QUANTITY_BINS = [
+		{ label: '1', test: (n: number) => n === 1, color: '#bfdbfe' },
+		{ label: '2', test: (n: number) => n === 2, color: '#93c5fd' },
+		{ label: '3-5', test: (n: number) => n >= 3 && n <= 5, color: '#3b82f6' },
+		{ label: '6+', test: (n: number) => n >= 6, color: '#1d4ed8' }
+	];
+
+	let itemQuantityStats = $derived.by(() => {
+		const byItem = new Map<string, number[]>();
 		for (const entry of filteredLogData) {
 			const vars = entry.parsedData.multipleUseVariable;
-			if (vars && Array.isArray(vars)) {
-				for (const item of vars) {
-					if (!multiMap[item.id]) {
-						multiMap[item.id] = {
-							id: item.id,
-							totalCount: 0,
-							occurrences: 0,
-							distribution: {}
-						};
-					}
-					multiMap[item.id].totalCount += item.count;
-					multiMap[item.id].occurrences++;
-					const k = item.count;
-					multiMap[item.id].distribution[k] = (multiMap[item.id].distribution[k] || 0) + 1;
-				}
+			if (!Array.isArray(vars)) continue;
+			for (const item of vars) {
+				const count = Number(item?.count);
+				if (!item?.id || !Number.isFinite(count) || count <= 0) continue;
+				const list = byItem.get(item.id);
+				if (list) list.push(count);
+				else byItem.set(item.id, [count]);
 			}
 		}
-		const result = Object.values(multiMap).sort((a: any, b: any) => b.totalCount - a.totalCount);
-		console.timeEnd('(7) Repeated Choice Statistics Calculation Time');
-		return result;
+
+		const totalEntries = Math.max(filteredLogData.length, 1);
+		const rows = [...byItem.entries()].map(([id, counts]) => {
+			const sorted = [...counts].sort((a, b) => a - b);
+			const units = sorted.reduce((sum, n) => sum + n, 0);
+			const mid = Math.floor(sorted.length / 2);
+			const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+			return {
+				id,
+				users: counts.length,
+				adoption: (counts.length / totalEntries) * 100,
+				units,
+				avg: units / counts.length,
+				median,
+				max: sorted[sorted.length - 1],
+				multi: (counts.filter((n) => n > 1).length / counts.length) * 100,
+				bins: QUANTITY_BINS.map((bin) => ({
+					label: bin.label,
+					color: bin.color,
+					count: counts.filter(bin.test).length
+				}))
+			};
+		});
+
+		return rows.sort((a, b) => b[quantitySort] - a[quantitySort]);
 	});
 
 	// --- 8. All Known Choices List ---
@@ -565,23 +490,6 @@
 		const days = Math.floor(hours / 24);
 		return `${days}d ${hours % 24}h`;
 	}
-
-	// Correlation Helper Functions
-	const getProbAB = (obj: correlationObject) => obj.percent / 100;
-
-	const calcJaccard = (obj: correlationObject) => {
-		const pAB = getProbAB(obj);
-		const union = obj.probA + obj.probB - pAB;
-		return union <= 0 ? 0 : pAB / union;
-	};
-	const calcCosine = (obj: correlationObject) => {
-		const pAB = getProbAB(obj);
-		const denom = Math.sqrt(obj.probA * obj.probB);
-		return denom <= 0 ? 0 : pAB / denom;
-	};
-	const calcLogWeightedLift = (obj: correlationObject) => {
-		return obj.lift * Math.log(obj.count + 1);
-	};
 </script>
 
 <div>
@@ -650,12 +558,6 @@
 			</div>
 		</div>
 	</div>
-
-	{#if progressMessage}
-		<div class="alert" role="alert">
-			<p>{progressMessage}</p>
-		</div>
-	{/if}
 
 	<!-- Visitor Graph -->
 	<h2 id="visitor-graph">{t.visitorCount}</h2>
@@ -759,7 +661,11 @@
 		</div>
 		<div class="stat-card">
 			<h3>{t.totalVisitors}</h3>
-			<p class="stat-value">{filteredLogData.length}</p>
+			<p class="stat-value">{uniqueVisitorCount.toLocaleString()}</p>
+		</div>
+		<div class="stat-card">
+			<h3>{t.totalEntries}</h3>
+			<p class="stat-value">{filteredLogData.length.toLocaleString()}</p>
 		</div>
 		<div class="stat-card wide">
 			<h3>{t.topViewports}</h3>
@@ -818,7 +724,7 @@
 		</div>
 	</div>
 
-	<!-- Time Distribution -->
+	<!-- Time on Page -->
 	<h2 id="time-distribution">
 		{t.timeOnPageDistribution}
 		<span class="text-sm font-normal text-gray ml-2">
@@ -833,71 +739,54 @@
 		</label>
 	</h2>
 	<div class="chart-container">
-		{#if timeDistribution.length > 0}
-			{@const maxCount = Math.max(...timeDistribution.map((d) => d.count), 1)}
-			<div class="distribution-chart">
-				{#each timeDistribution as d}
-					<div class="dist-bar-container">
-						<div class="dist-label">{d.label}</div>
-						<div class="dist-bar-wrapper">
-							<div
-								class="dist-bar"
-								style="width: {(d.count / maxCount) * 100}%"
-								title="{d.count} {t.users} ({d.percent.toFixed(1)}%)"
-							></div>
-							<span class="dist-value">{d.count} ({d.percent.toFixed(1)}%)</span>
-						</div>
+		{#if retentionCurve}
+			<p class="text-sm text-gray" style="margin-bottom: 0.75rem;">{t.retentionHint}</p>
+			<div class="percentile-row">
+				{#each timePercentiles as item}
+					<div class="percentile-card">
+						<span class="meta-label">{item.label}</span>
+						<span class="meta-value">{formatTime(item.value)}</span>
 					</div>
 				{/each}
 			</div>
+			<svg class="retention-chart" viewBox="0 0 640 260" role="img" aria-label={t.retentionHint}>
+				<g transform="translate(48 12)">
+					{#each [0, 25, 50, 75, 100] as tick}
+						<line
+							x1="0"
+							x2="570"
+							y1={216 - (tick / 100) * 216}
+							y2={216 - (tick / 100) * 216}
+							class="grid-line"
+						/>
+						<text x="-8" y={220 - (tick / 100) * 216} text-anchor="end" class="axis-text"
+							>{tick}%</text
+						>
+					{/each}
+					{#each retentionCurve.ticks as tick}
+						<text x={tick.x * 570} y="236" text-anchor="middle" class="axis-text">{tick.label}</text
+						>
+					{/each}
+					<g transform="scale(570 2.16)">
+						<path d={`${retentionCurve.path} L1,100 L0,100 Z`} class="curve-area" />
+						<path d={retentionCurve.path} class="curve-line" vector-effect="non-scaling-stroke" />
+					</g>
+					{#each retentionCurve.points as pt}
+						<rect x={pt.x * 570 - 4} y="0" width="8" height="216" fill="transparent">
+							<title
+								>{pt.percent.toFixed(1)}% {t.stayedAtLeast}
+								{formatTime(Math.round(pt.seconds))}</title
+							>
+						</rect>
+					{/each}
+				</g>
+			</svg>
 		{:else}
 			<p class="text-gray italic">{t.noTimeData}</p>
 		{/if}
 	</div>
 
-	<!-- Choice Correlations -->
-	<h2 id="correlations">{t.choiceCorrelations} (top {correlationLimit})</h2>
-	<select id="correlationSort" bind:value={correlationSortFunction}>
-		{#each correlationSortOptions as option}
-			<option value={option.value} selected={option.value == correlationSortOptions[0].value}
-				>{option.label}</option
-			>
-		{/each}
-	</select>
-	<input
-		type="range"
-		min="1"
-		max="100"
-		step="1"
-		bind:value={correlationLimit}
-		class="number-input"
-	/>
-	<input type="checkbox" id="enableCorrelation" bind:checked={enableCorrelation} />
-	<label for="enableCorrelation">{t.enableCorrelation}</label>
-	{#if !enableCorrelation}
-		<p class="text-red-600 italic">{t.correlationDisabled}</p>
-	{/if}
-	<div class="correlation-grid">
-		{#each slicedSortedTopCorrelations as corr}
-			{@const objA = objectMap[corr.idA]}
-			{@const objB = objectMap[corr.idB]}
-			<div class="correlation-card">
-				<div class="correlation-pair">
-					<span title={corr.idA}>{objA ? objA.title || corr.idA : corr.idA}</span>
-					<span class="separator">+</span>
-					<span title={corr.idB}>{objB ? objB.title || corr.idB : corr.idB}</span>
-				</div>
-				<div class="correlation-stat">
-					<span class="lift">Lift: {corr.lift.toFixed(2)}</span>
-					<span class="count">{corr.count}</span>
-					<span class="percent">({corr.percent.toFixed(1)}%)</span>
-				</div>
-			</div>
-		{/each}
-		{#if slicedSortedTopCorrelations.length === 0}
-			<p class="text-gray italic">{t.noCorrelations}</p>
-		{/if}
-	</div>
+	<CorrelationTable {t} {filteredLogData} {objectMap} />
 
 	<!-- User-Entered Words -->
 	<h2 id="user-words">{t.userEnteredWords || 'User-Entered Words'}</h2>
@@ -908,7 +797,7 @@
 					<div class="card">
 						<h3>{word.id}</h3>
 						<p class="text-sm text-gray" style="margin-bottom: 0.5rem;">
-							{t.totalEntries || 'Total'}:
+							{t.totalEntries}:
 							<span class="font-bold text-blue">{word.totalCount}</span>
 						</p>
 
@@ -936,7 +825,7 @@
 						{#if word.variants.length > 10}
 							<p class="text-xs text-gray text-center mt-2">
 								+ {word.variants.length - 10}
-								{t.more || 'more'}
+								{t.more}
 							</p>
 						{/if}
 					</div>
@@ -947,62 +836,98 @@
 		{/if}
 	</div>
 
-	<!-- Repeated Choices -->
-	<h2 id="repeated-choices">{t.repeatedChoices || 'Repeated Choices'}</h2>
+	<!-- Item Quantities -->
+	<h2 id="repeated-choices">{t.repeatedChoices}</h2>
 	<div class="multiple-use-container">
-		{#if repeatedChoiceStats.length > 0}
-			<div class="repeated-choices-list">
-				{#each repeatedChoiceStats as item}
-					{@const obj = objectMap[item.id]}
-					{@const maxDist = Math.max(...Object.values(item.distribution as Record<string, number>))}
-					<div class="repeated-choice-row">
-						<div class="choice-header">
-							{#if obj && obj.image}
-								<img
-									src={obj.image.startsWith('http') || obj.image.startsWith('data:')
-										? obj.image
-										: original_url + obj.image}
-									alt={obj.title}
-									class="choice-image"
-								/>
-							{/if}
-							<div class="choice-details">
-								<h3>{obj ? obj.title || item.id : item.id}</h3>
-								{#if obj && obj.text}
-									<p class="text-sm text-gray">{obj.text}</p>
-								{/if}
-							</div>
-							<div class="choice-meta">
-								<div class="meta-item">
-									<span class="meta-label">{t.totalSelections || 'Total Selections'}</span>
-									<span class="meta-value">{item.totalCount}</span>
-								</div>
-								<div class="meta-item">
-									<span class="meta-label">{t.users || 'Users'}</span>
-									<span class="meta-value">{item.occurrences}</span>
-								</div>
-							</div>
-						</div>
-						<div class="choice-distribution">
-							{#each Object.entries(item.distribution).sort((a, b) => Number(a[0]) - Number(b[0])) as [count, userCount]}
-								<div class="dist-row">
-									<span class="dist-label">{count}x</span>
-									<div class="dist-bar-bg">
-										<div
-											class="dist-bar-fill"
-											style="width: {(Number(userCount) / maxDist) * 100}%"
-											title="{userCount} users selected this {count} times"
-										></div>
-									</div>
-									<span class="dist-count">{userCount}</span>
-								</div>
-							{/each}
-						</div>
-					</div>
+		{#if itemQuantityStats.length > 0}
+			<p class="text-sm text-gray" style="margin-bottom: 0.75rem;">{t.itemQuantitiesHint}</p>
+			<div class="quantity-legend">
+				{#each QUANTITY_BINS as bin}
+					<span><i style="background: {bin.color}"></i>{bin.label}</span>
 				{/each}
 			</div>
+			<div class="quantity-table-wrapper">
+				<table class="quantity-table">
+					<thead>
+						<tr>
+							<th>{t.item}</th>
+							<th>
+								<button
+									class:active={quantitySort === 'users'}
+									onclick={() => (quantitySort = 'users')}>{t.takenBy}</button
+								>
+							</th>
+							<th>
+								<button class:active={quantitySort === 'avg'} onclick={() => (quantitySort = 'avg')}
+									>{t.avgQuantity}</button
+								>
+							</th>
+							<th>
+								<button class:active={quantitySort === 'max'} onclick={() => (quantitySort = 'max')}
+									>{t.maxQuantity}</button
+								>
+							</th>
+							<th>
+								<button
+									class:active={quantitySort === 'units'}
+									onclick={() => (quantitySort = 'units')}>{t.totalUnits}</button
+								>
+							</th>
+							<th>
+								<button
+									class:active={quantitySort === 'multi'}
+									onclick={() => (quantitySort = 'multi')}>{t.tookMoreThanOne}</button
+								>
+							</th>
+							<th>{t.quantitySplit}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each itemQuantityStats as item (item.id)}
+							{@const obj = objectMap[item.id]}
+							<tr>
+								<td class="item-cell">
+									{#if obj && obj.image}
+										<img
+											src={obj.image.startsWith('http') || obj.image.startsWith('data:')
+												? obj.image
+												: original_url + obj.image}
+											alt={obj.title}
+											class="choice-image"
+										/>
+									{/if}
+									<span class="break-words">{obj ? obj.title || item.id : item.id}</span>
+								</td>
+								<td>{item.users} <span class="text-gray">({item.adoption.toFixed(1)}%)</span></td>
+								<td
+									>{item.avg.toFixed(1)}
+									<span class="text-gray">({t.median} {item.median})</span></td
+								>
+								<td>{item.max}</td>
+								<td>{item.units}</td>
+								<td>{item.multi.toFixed(0)}%</td>
+								<td class="split-cell">
+									<div class="stacked-bar">
+										{#each item.bins as bin}
+											{#if bin.count > 0}
+												<div
+													style="width: {(bin.count / item.users) * 100}%; background: {bin.color}"
+													title="{bin.label}x: {bin.count} ({(
+														(bin.count / item.users) *
+														100
+													).toFixed(0)}%)"
+												></div>
+											{/if}
+										{/each}
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{:else}
-			<p class="text-gray italic">{t.noMultipleUseData || 'No repeated choices'}</p>
+			<p class="text-gray italic">{t.noMultipleUseData}</p>
 		{/if}
 	</div>
 
@@ -1136,13 +1061,6 @@
 	h2,
 	h3 {
 		margin-bottom: 10px;
-	}
-	.alert {
-		background-color: #fef9c3;
-		border-left: 4px solid #eab308;
-		color: #a16207;
-		padding: 1rem;
-		margin-bottom: 1rem;
 	}
 	.grid {
 		display: grid;
@@ -1326,13 +1244,6 @@
 	.font-normal {
 		font-weight: normal;
 	}
-	#correlations {
-		margin-bottom: 2rem;
-	}
-	#correlationSort {
-		margin-bottom: 1rem;
-	}
-
 	.chart-container {
 		background-color: white;
 		border: 1px solid #e5e7eb;
@@ -1361,57 +1272,6 @@
 		font-size: 2rem;
 		font-weight: bold;
 		color: #2563eb;
-	}
-	.number-input {
-		width: 60px;
-		padding: 0.25rem;
-		border: 1px solid #d1d5db;
-		border-radius: 0.375rem;
-		background-color: white;
-		font-size: 0.875rem;
-		color: #111827;
-		cursor: pointer;
-		margin-left: 1rem;
-	}
-	.correlation-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-		gap: 1rem;
-		margin-bottom: 2rem;
-	}
-	.correlation-card {
-		background-color: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.5rem;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
-	}
-	.correlation-pair {
-		font-weight: bold;
-		margin-bottom: 0.5rem;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		align-items: center;
-	}
-	.correlation-pair .separator {
-		color: #9ca3af;
-	}
-	.correlation-stat {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-	}
-	.correlation-stat .count {
-		font-size: 1.25rem;
-		font-weight: bold;
-		color: #2563eb;
-	}
-	.correlation-stat .percent {
-		color: #6b7280;
-		font-size: 0.875rem;
 	}
 	.rows-container {
 		display: flex;
@@ -1461,38 +1321,50 @@
 		height: 2px;
 		margin-top: 0.4rem;
 	}
-	.distribution-chart {
+	.percentile-row {
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.75rem;
+	}
+	.percentile-card {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		padding: 0.5rem 1rem;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		min-width: 80px;
 	}
-	.dist-bar-container {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
+	.meta-label {
+		font-size: 0.75rem;
+		color: #6b7280;
 	}
-	.dist-label {
-		width: 80px;
-		text-align: right;
-		font-size: 0.875rem;
-		color: #666;
+	.meta-value {
+		font-size: 1.25rem;
+		font-weight: bold;
+		color: #2563eb;
 	}
-	.dist-bar-wrapper {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+	.retention-chart {
+		width: 100%;
+		max-width: 720px;
+		height: auto;
 	}
-	.dist-bar {
-		height: 1.5rem;
-		background-color: #3b82f6;
-		border-radius: 0.25rem;
-		min-width: 2px;
+	.retention-chart .grid-line {
+		stroke: #e5e7eb;
+		stroke-width: 1;
 	}
-	.dist-value {
-		font-size: 0.875rem;
-		color: #666;
-		white-space: nowrap;
+	.retention-chart .axis-text {
+		font-size: 11px;
+		fill: #6b7280;
+	}
+	.retention-chart .curve-line {
+		fill: none;
+		stroke: #2563eb;
+		stroke-width: 2;
+	}
+	.retention-chart .curve-area {
+		fill: rgba(59, 130, 246, 0.15);
 	}
 	.ml-2 {
 		margin-left: 0.5rem;
@@ -1549,94 +1421,78 @@
 	.multiple-use-container {
 		margin-bottom: 2rem;
 	}
-	.repeated-choices-list {
+	.quantity-legend {
 		display: flex;
-		flex-direction: column;
 		gap: 1rem;
+		font-size: 0.75rem;
+		color: #6b7280;
+		margin-bottom: 0.5rem;
 	}
-	.repeated-choice-row {
-		background-color: white;
+	.quantity-legend i {
+		display: inline-block;
+		width: 0.75rem;
+		height: 0.75rem;
+		border-radius: 2px;
+		margin-right: 0.25rem;
+		vertical-align: middle;
+	}
+	.quantity-table-wrapper {
+		overflow-x: auto;
+		background: white;
 		border: 1px solid #e5e7eb;
 		border-radius: 0.5rem;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
 	}
-	.choice-header {
+	.quantity-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.875rem;
+	}
+	.quantity-table th,
+	.quantity-table td {
+		padding: 0.5rem 0.75rem;
+		text-align: left;
+		border-bottom: 1px solid #f3f4f6;
+		white-space: nowrap;
+	}
+	.quantity-table th button {
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		font-weight: 600;
+		color: #6b7280;
+		cursor: pointer;
+	}
+	.quantity-table th button.active {
+		color: #2563eb;
+	}
+	.quantity-table th button.active::after {
+		content: ' ↓';
+	}
+	.item-cell {
 		display: flex;
-		gap: 1rem;
-		align-items: flex-start;
+		align-items: center;
+		gap: 0.75rem;
+		white-space: normal;
+		min-width: 180px;
 	}
 	.choice-image {
-		width: 60px;
-		height: 60px;
+		width: 40px;
+		height: 40px;
 		object-fit: cover;
 		border-radius: 0.25rem;
 		flex-shrink: 0;
 	}
-	.choice-details {
-		flex: 1;
+	.split-cell {
+		min-width: 160px;
+		width: 30%;
 	}
-	.choice-details h3 {
-		margin: 0 0 0.25rem 0;
-		font-size: 1.1rem;
-	}
-	.choice-meta {
+	.stacked-bar {
 		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		min-width: 120px;
-		text-align: right;
-	}
-	.meta-item {
-		display: flex;
-		flex-direction: column;
-	}
-	.meta-label {
-		font-size: 0.75rem;
-		color: #6b7280;
-	}
-	.meta-value {
-		font-size: 1.25rem;
-		font-weight: bold;
-		color: #2563eb;
-	}
-	.choice-distribution {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		padding-left: 1rem;
-		border-left: 2px solid #e5e7eb;
-	}
-	.dist-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.875rem;
-	}
-	.dist-label {
-		width: 30px;
-		text-align: right;
-		color: #6b7280;
-		font-weight: 500;
-	}
-	.dist-bar-bg {
-		flex: 1;
-		height: 1.25rem;
-		background-color: #f3f4f6;
+		height: 1rem;
 		border-radius: 0.25rem;
 		overflow: hidden;
-	}
-	.dist-bar-fill {
-		height: 100%;
-		background-color: #3b82f6;
-		border-radius: 0.25rem;
-		min-width: 2px;
-	}
-	.dist-count {
-		width: 40px;
-		color: #6b7280;
+		background: #f3f4f6;
 	}
 	.card-content {
 		background-color: #f9fafb;

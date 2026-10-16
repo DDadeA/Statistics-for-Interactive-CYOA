@@ -1,15 +1,18 @@
-import { query } from '$lib/utils';
-import { json } from '@sveltejs/kit';
+import { logPageResponse, parseLogPageParams } from '$lib/server/logs';
 
-// Get
+// Access is restricted by Cloudflare Access on /admin/*, so no secret key is needed here.
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
-	// Get logs from D1
-	const project_id = new URL(request.url).searchParams.get('project_id');
+	const searchParams = new URL(request.url).searchParams;
+	const project_id = searchParams.get('project_id');
+
 	if (!project_id) {
-		return new Response('Bad Request: Missing project_id', { status: 400 });
+		return new Response('Bad Request: project_id is required', { status: 400 });
 	}
 
-	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
+	const pageParams = parseLogPageParams(searchParams);
+	if (!pageParams) {
+		return new Response('Bad Request: Invalid cursor', { status: 400 });
+	}
 
-	return json(result);
+	return logPageResponse(platform, project_id, pageParams);
 }

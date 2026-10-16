@@ -1,4 +1,5 @@
 import { query, getHash } from '$lib/utils';
+import { logPageResponse, parseLogPageParams } from '$lib/server/logs';
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 
@@ -26,7 +27,10 @@ export async function GET({ request, platform }: { request: Request; platform: A
 		return new Response('Unauthorized', { status: 401 });
 	}
 
-	const urlParams = new URL(request.url).searchParams;
+	const pageParams = parseLogPageParams(new URL(request.url).searchParams);
+	if (!pageParams) {
+		return new Response('Bad Request: Invalid cursor', { status: 400 });
+	}
 
 	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
@@ -39,11 +43,9 @@ export async function GET({ request, platform }: { request: Request; platform: A
 		return new Response('Unauthorized', { status: 401 });
 	}
 
-	const project_id = project.results[0].project_id;
+	const project_id = String(project.results[0].project_id);
 
-	let result = await query(platform, 'SELECT * FROM logs WHERE project_id = ?', [project_id]);
-
-	return json(result);
+	return logPageResponse(platform, project_id, pageParams);
 }
 
 // Post - no authentication
