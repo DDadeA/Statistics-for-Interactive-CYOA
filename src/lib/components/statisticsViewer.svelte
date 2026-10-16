@@ -103,15 +103,13 @@
 		setTimeout(() => setProgress(''), 3000);
 	}
 
-	async function updateProjectJson() {
-		if (logData.length === 0) {
-			alert(t.noStatsData);
-			return;
-		}
+	const MAX_URL_OPTIONS = 20;
+	let selectedUrl = '';
 
-		let urlCount: { [key: string]: number } = {};
-
-		for (const entry of logData) {
+	// Page URLs found in the logs, most common first
+	function countUrls(entries: LogEntry[]): { url: string; count: number }[] {
+		const urlCount = new Map<string, number>();
+		for (const entry of entries) {
 			let entryURL: string | undefined;
 			try {
 				const parsedData =
@@ -122,21 +120,31 @@
 				continue;
 			}
 			if (typeof entryURL !== 'string' || !entryURL) continue;
-			if (entryURL in urlCount) {
-				urlCount[entryURL]++;
-			} else {
-				urlCount[entryURL] = 1;
-			}
+			urlCount.set(entryURL, (urlCount.get(entryURL) ?? 0) + 1);
+		}
+		return [...urlCount.entries()]
+			.map(([url, count]) => ({ url, count }))
+			.sort((a, b) => b.count - a.count)
+			.slice(0, MAX_URL_OPTIONS);
+	}
+
+	$: urlOptions = countUrls(logData);
+	$: if (selectedUrl && !urlOptions.some((option) => option.url === selectedUrl)) selectedUrl = '';
+
+	async function updateProjectJson() {
+		if (logData.length === 0) {
+			alert(t.noStatsData);
+			return;
 		}
 
-		const mostCommonUrl = Object.entries(urlCount).sort((a, b) => b[1] - a[1])[0]?.[0];
-		if (!mostCommonUrl) {
+		const chosenUrl = selectedUrl || urlOptions[0]?.url;
+		if (!chosenUrl) {
 			alert(t.noCurrentUrl);
 			return;
 		}
 
 		try {
-			const urlObj = new URL(mostCommonUrl);
+			const urlObj = new URL(chosenUrl);
 			urlObj.search = '';
 			urlObj.hash = '';
 			await main(urlObj.toString());
@@ -263,6 +271,17 @@
 			>{t.downloadData}</button
 		>
 	</div>
+	{#if urlOptions.length > 1}
+		<label class="url-picker">
+			<span>{t.projectUrl}</span>
+			<select bind:value={selectedUrl}>
+				<option value="">{t.mostCommonUrl}</option>
+				{#each urlOptions as option}
+					<option value={option.url}>{option.count.toLocaleString()} · {option.url}</option>
+				{/each}
+			</select>
+		</label>
+	{/if}
 	{#if progressMessage}
 		<p class="load-status" role="status" aria-live="polite">{progressMessage}</p>
 	{/if}
@@ -340,6 +359,20 @@
 	}
 	.language-switcher .separator {
 		color: #d1d5db;
+	}
+	.url-picker {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		font-size: 0.875rem;
+		color: #4b5563;
+	}
+	.url-picker select {
+		flex: 1;
+		min-width: 0;
+		max-width: 100%;
+		padding: 0.25rem 0.5rem;
 	}
 	.button-group {
 		display: flex;
