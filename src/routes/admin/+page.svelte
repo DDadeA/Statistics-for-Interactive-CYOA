@@ -7,6 +7,7 @@
 	export let data;
 
 	let currentLang = 'en';
+	let queryLimit = 1000;
 	let t: typeof translations.en;
 	$: t = translations[currentLang as keyof typeof translations];
 
@@ -45,7 +46,7 @@
 	async function loadData() {
 		if (!selectedProjectId) return;
 
-		let result = await fetch(`/admin/api/log?project_id=${selectedProjectId}`, {
+		let result = await fetch(`/admin/api/log?project_id=${selectedProjectId}&limit=${queryLimit}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json'
@@ -109,6 +110,7 @@
 			<option value={project.project_id}>{project.project_id} - {project.sample_url}</option>
 		{/each}
 	</select>
+	<p>Query limit: <input type="number" bind:value={queryLimit} /></p>
 </div>
 
 <div class="container">
