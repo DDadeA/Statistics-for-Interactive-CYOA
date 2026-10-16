@@ -14,6 +14,7 @@
 	let selectedProjectId: string | null = null;
 	let logData: LogEntry[] = [];
 	let projectData: any = null;
+	let activityData: any[] = [];
 
 	let progressMessage = '';
 
@@ -99,7 +100,95 @@
 		setProgress(t.projectLoaded);
 		setTimeout(() => setProgress(''), 3000);
 	}
+
+	interface GraphDataPoint {
+		project_id: string;
+		created_at: string;
+	}
+	function drawActivityGraph(
+		ctx: CanvasRenderingContext2D,
+		data: any[],
+		canvas: HTMLCanvasElement,
+		label: string
+	) {
+		const padding = 40;
+		const width = canvas.width - 2 * padding;
+		const height = canvas.height - 2 * padding;
+
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+		if (data.length === 0) {
+			ctx.fillText('No data available', canvas.width / 2 - 50, canvas.height / 2);
+			return;
+		}
+
+		const maxCount = Math.max(...data.map((d) => d.count));
+		const barWidth = width / data.length;
+
+		// Draw axes
+		ctx.strokeStyle = '#000';
+		ctx.beginPath();
+		ctx.moveTo(padding, padding);
+		ctx.lineTo(padding, canvas.height - padding);
+		ctx.lineTo(canvas.width - padding, canvas.height - padding);
+		ctx.stroke();
+
+		// Draw bars
+		ctx.fillStyle = '#4CAF50';
+		data.forEach((point, index) => {
+			const barHeight = (point.count / maxCount) * height;
+			const x = padding + index * barWidth;
+			const y = canvas.height - padding - barHeight;
+
+			ctx.fillRect(x + 2, y, barWidth - 4, barHeight);
+		});
+
+		// Draw title
+		ctx.fillStyle = '#000';
+		ctx.font = 'bold 14px Arial';
+		ctx.fillText(`${label} - Activity`, 10, 20);
+	}
+
+	async function loadActivityGraphData() {
+		// api/log without project_id returns all projects with project_id and created_at
+		const limit = 10000;
+		let results: GraphDataPoint[] = (
+			await fetch(`/admin/api/log?limit=${limit}`, {
+				method: 'GET'
+			}).then((res) => res.json())
+		).results;
+
+		// Count occurrences of project_id per day
+		const counts: Record<string, number> = {};
+		results.forEach((item) => {
+			const dateKey = item.created_at.split('T')[0]; // Group by day
+			counts[dateKey] = (counts[dateKey] || 0) + 1;
+		});
+
+		// Convert counts to array of { date, count }. key is project_id
+		activityData = Object.entries(counts).map(([date, count]) => ({
+			date,
+			count
+		}));
+
+		const canvas = document.getElementById('activity-graph') as HTMLCanvasElement;
+		if (canvas) {
+			const ctx = canvas.getContext('2d');
+			if (ctx) {
+				const project = data.projects.find((proj) => proj.project_id === selectedProjectId);
+				const projectLabel = project ? project.project_id.substring(0, 5) : 'All';
+				drawActivityGraph(ctx, activityData, canvas, projectLabel);
+			}
+		}
+	}
 </script>
+
+<div id="activity-graph-container">
+	<h2>Activity Graph</h2>
+	<p id="progress-message">{progressMessage}</p>
+	<button on:click={loadActivityGraphData}>Load Activity Graph Data</button>
+	<canvas id="activity-graph"></canvas>
+</div>
 
 <div class="project-list">
 	<h2>Projects</h2>
