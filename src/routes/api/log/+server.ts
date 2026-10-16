@@ -1,4 +1,5 @@
 import { query, getHash } from '$lib/utils';
+import { logPageResponse, parseLogPageParams } from '$lib/server/logs';
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 
@@ -26,14 +27,8 @@ export async function GET({ request, platform }: { request: Request; platform: A
 		return new Response('Unauthorized', { status: 401 });
 	}
 
-	const urlParams = new URL(request.url).searchParams;
-	const requestedLimit = Number(urlParams.get('limit') ?? 1000);
-	const limit = Number.isInteger(requestedLimit)
-		? Math.min(Math.max(requestedLimit, 1), 1000)
-		: 1000;
-	const cursor = urlParams.get('cursor');
-
-	if (cursor !== null && (!/^\d+$/.test(cursor) || !Number.isSafeInteger(Number(cursor)))) {
+	const pageParams = parseLogPageParams(new URL(request.url).searchParams);
+	if (!pageParams) {
 		return new Response('Bad Request: Invalid cursor', { status: 400 });
 	}
 
@@ -48,37 +43,9 @@ export async function GET({ request, platform }: { request: Request; platform: A
 		return new Response('Unauthorized', { status: 401 });
 	}
 
-	const project_id = project.results[0].project_id;
+	const project_id = String(project.results[0].project_id);
 
-	let result;
-	try {
-		result = cursor
-			? await query(
-					platform,
-					'SELECT * FROM logs WHERE project_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
-					[project_id, Number(cursor), limit + 1]
-				)
-			: await query(platform, 'SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?', [
-					project_id,
-					limit + 1
-				]);
-	} catch (error) {
-		console.error('Failed to read logs page:', error);
-		return json(
-			{ error: error instanceof Error ? error.message : 'Failed to read logs' },
-			{ status: 503 }
-		);
-	}
-
-	const hasMore = result.results.length > limit;
-	const entries = result.results.slice(0, limit);
-	const lastEntry = entries[entries.length - 1];
-
-	return json({
-		results: entries,
-		hasMore,
-		nextCursor: hasMore && lastEntry ? String(lastEntry.id) : null
-	});
+	return logPageResponse(platform, project_id, pageParams);
 }
 
 // Post - no authentication

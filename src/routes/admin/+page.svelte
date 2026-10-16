@@ -3,11 +3,11 @@
 	import type { LogEntry } from '$lib/types';
 	import { translations } from '$lib/translations';
 	import { fetchWithProgress, finderUrl, proxyUrl } from '$lib/utils';
+	import { loadAllLogs } from '$lib/logLoader';
 
 	export let data;
 
 	let currentLang = 'en';
-	let queryLimit = 1000;
 	let t: typeof translations.en;
 	$: t = translations[currentLang as keyof typeof translations];
 
@@ -47,15 +47,25 @@
 	async function loadData() {
 		if (!selectedProjectId) return;
 
-		let result = await fetch(`/admin/api/log?project_id=${selectedProjectId}&limit=${queryLimit}`, {
-			method: 'GET',
-			headers: {
-				'Content-Type': 'application/json'
-			}
-		}).then((res) => res.json());
-
-		console.log(result);
-		logData = result.results || [];
+		try {
+			logData = await loadAllLogs({
+				endpoint: '/admin/api/log',
+				params: { project_id: selectedProjectId },
+				onProgress: (loaded, pageNumber) =>
+					setProgress(`${t.loadingStats} ${loaded.toLocaleString()} entries · page ${pageNumber}`),
+				errorMessages: {
+					unauthorized: t.invalidSecretKey,
+					failed: t.loadFailed,
+					invalidResponse: t.invalidResponse,
+					missingCursor: t.missingCursor
+				}
+			});
+			setProgress('');
+		} catch (error) {
+			console.error('Failed to load logs:', error);
+			setProgress(error instanceof Error ? error.message : String(error));
+			logData = [];
+		}
 	}
 	async function main(projectPath: string) {
 		setProgress(t.findingProject);
@@ -199,7 +209,6 @@
 			<option value={project.project_id}>{project.project_id} - {project.sample_url}</option>
 		{/each}
 	</select>
-	<p>Query limit: <input type="number" bind:value={queryLimit} /></p>
 </div>
 
 <div class="container">

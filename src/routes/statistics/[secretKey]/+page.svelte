@@ -4,6 +4,7 @@
 	import type { LogEntry } from '$lib/types';
 	import StatisticsDashboard from '$lib/components/statisticsDashboard.svelte';
 	import { finderUrl, proxyUrl } from '$lib/utils';
+	import { loadAllLogs } from '$lib/logLoader';
 
 	let logData: LogEntry[] = [];
 	let secretKey = '';
@@ -22,12 +23,6 @@
 	>();
 
 	$: t = translations[currentLang as keyof typeof translations];
-
-	interface LogPage {
-		results: LogEntry[];
-		hasMore: boolean;
-		nextCursor: string | null;
-	}
 
 	interface ParserResponse {
 		requestId: number;
@@ -173,64 +168,27 @@
 		}
 	}
 
-	const PAGE_SIZE = 500;
-
-	async function fetchWithRetry(url: string, init: RequestInit, attempts = 4) {
-		for (let attempt = 1; ; attempt++) {
-			try {
-				const response = await fetch(url, init);
-				const retryable = response.status >= 500 || response.status === 429;
-				if (!retryable || attempt >= attempts) return response;
-			} catch (error) {
-				if (attempt >= attempts) throw error;
-			}
-			await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
-		}
-	}
-
 	async function loadData() {
 		if (!secretKey || isLoading) return;
 
 		isLoading = true;
 		loadError = '';
 		setProgress(t.loadingStats);
-		const loadedEntries: LogEntry[] = [];
-		let cursor: string | null = null;
-		let pageNumber = 0;
 
 		try {
-			do {
-				const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-				if (cursor) params.set('cursor', cursor);
-
-				const response = await fetchWithRetry(`/api/log?${params}`, {
-					headers: { Authorization: `Bearer ${secretKey}` }
-				});
-				if (!response.ok) {
-					throw new Error(
-						response.status === 401
-							? t.invalidSecretKey
-							: `${t.loadFailed} (HTTP ${response.status}).`
-					);
+			const loadedEntries = await loadAllLogs({
+				endpoint: '/api/log',
+				headers: { Authorization: `Bearer ${secretKey}` },
+				onPage: parseEntries,
+				onProgress: (loaded, pageNumber) =>
+					setProgress(`${t.loadingStats} ${loaded.toLocaleString()} entries · page ${pageNumber}`),
+				errorMessages: {
+					unauthorized: t.invalidSecretKey,
+					failed: t.loadFailed,
+					invalidResponse: t.invalidResponse,
+					missingCursor: t.missingCursor
 				}
-
-				const page = (await response.json()) as LogPage;
-				if (!Array.isArray(page.results) || typeof page.hasMore !== 'boolean') {
-					throw new Error(t.invalidResponse);
-				}
-				if (page.hasMore && (!page.nextCursor || page.nextCursor === cursor)) {
-					throw new Error(t.missingCursor);
-				}
-
-				loadedEntries.push(...(await parseEntries(page.results)));
-				cursor = page.nextCursor;
-				pageNumber++;
-				setProgress(
-					`${t.loadingStats} ${loadedEntries.length.toLocaleString()} entries · page ${pageNumber}`
-				);
-
-				if (!page.hasMore) break;
-			} while (true);
+			});
 
 			logData = loadedEntries;
 			if (logData.length > 0) {

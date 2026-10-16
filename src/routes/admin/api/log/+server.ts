@@ -1,26 +1,30 @@
 import { query } from '$lib/utils';
 import { json } from '@sveltejs/kit';
+import { logPageResponse, parseLogPageParams } from '$lib/server/logs';
 
-// Get
+// Access is restricted by Cloudflare Access on /admin/*, so no secret key is needed here.
 export async function GET({ request, platform }: { request: Request; platform: App.Platform }) {
-	// Get logs from D1
-	const project_id = new URL(request.url).searchParams.get('project_id');
-	const limit = new URL(request.url).searchParams.get('limit') || '5000';
+	const searchParams = new URL(request.url).searchParams;
+	const project_id = searchParams.get('project_id');
+
 	if (!project_id) {
-		// Return all projects with only project_id, created_at
-		let result = await query(
+		// Recent activity across all projects (project_id, created_at only)
+		const requestedLimit = Number(searchParams.get('limit') ?? 5000);
+		const limit = Number.isInteger(requestedLimit)
+			? Math.min(Math.max(requestedLimit, 1), 10000)
+			: 5000;
+		const result = await query(
 			platform,
-			'SELECT project_id, created_at FROM logs ORDER BY created_at DESC LIMIT ?',
+			'SELECT project_id, created_at FROM logs ORDER BY id DESC LIMIT ?',
 			[limit]
 		);
 		return json(result);
 	}
 
-	let result = await query(
-		platform,
-		'SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?',
-		[project_id, limit]
-	);
+	const pageParams = parseLogPageParams(searchParams);
+	if (!pageParams) {
+		return new Response('Bad Request: Invalid cursor', { status: 400 });
+	}
 
-	return json(result);
+	return logPageResponse(platform, project_id, pageParams);
 }
