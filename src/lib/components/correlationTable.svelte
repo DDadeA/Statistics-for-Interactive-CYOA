@@ -2,79 +2,80 @@
 	import type { correlationObject } from '$lib/types';
 	import { correlationSortFunctions } from '$lib/correlationSortFunctions';
 
-	let { t, filteredLogData, statisticsCounts, objectMap } = $props();
+	let { t, filteredLogData, objectMap } = $props();
 
 	let correlationLimit: number = $state(10);
-	let enableCorrelation: boolean = $state(true);
+	let enableCorrelation: boolean = $state(false);
 	let correlationSortFunction: (a: correlationObject, b: correlationObject) => number = $state(
 		correlationSortFunctions[0].value
 	);
-	let message: string = $state('');
 
-	let topCorrelations = $derived.by(() => {
-		if (!enableCorrelation) return [];
-		if (!filteredLogData) return [];
-		if (filteredLogData.length === 0) return [];
+	const maxCorrelationEntries = 3000;
 
-		console.time('(3-1) Correlations Calculation Time');
-		const pairCounts = new Map<string, number>();
-		const totalEntries = filteredLogData.length;
-
-		// Too large data set, limit to 3000 entries for correlation calculation (N^2 complexity)
-		if (totalEntries.length > 3000) {
-			filteredLogData = filteredLogData.slice(0, 3000);
-			message = t.correlationLimitMessage;
+	let correlationResult = $derived.by(() => {
+		if (!enableCorrelation || !filteredLogData || filteredLogData.length === 0) {
+			return { correlations: [], message: '' };
 		}
 
-		for (const entry of filteredLogData) {
-			const choices = entry.parsedData.selectedChoices;
-			if (!choices || choices.length < 2) continue;
+		const totalEntries = filteredLogData.length;
+		const sampled =
+			totalEntries > maxCorrelationEntries
+				? Array.from({ length: maxCorrelationEntries }, (_, index) => {
+						const sourceIndex = Math.floor(
+							(index * (totalEntries - 1)) / (maxCorrelationEntries - 1)
+						);
+						return filteredLogData[sourceIndex];
+					})
+				: filteredLogData;
+		const sampleCounts: Record<string, number> = {};
+		const pairCounts = new Map<string, number>();
 
-			// Choices are already sorted in parsedLogData (Step A)
-			const len = choices.length;
+		for (const entry of sampled) {
+			const choices: unknown = entry.parsedData?.selectedChoices;
+			if (!Array.isArray(choices) || choices.length < 2) continue;
 
-			// O(Choices^2) per user, but O(N * C^2) total.
-			for (let i = 0; i < len; i++) {
-				const choiceA = choices[i];
-				for (let j = i + 1; j < len; j++) {
-					const key = `${choiceA}|${choices[j]}`;
+			const uniqueChoices = [
+				...new Set(
+					choices.filter((choice: unknown): choice is string => typeof choice === 'string')
+				)
+			];
+			for (const choice of uniqueChoices) {
+				sampleCounts[choice] = (sampleCounts[choice] || 0) + 1;
+			}
+
+			for (let i = 0; i < uniqueChoices.length; i++) {
+				const choiceA = uniqueChoices[i];
+				for (let j = i + 1; j < uniqueChoices.length; j++) {
+					const key = JSON.stringify([choiceA, uniqueChoices[j]]);
 					pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
 				}
 			}
 		}
 
 		const correlations = Array.from(pairCounts.entries()).map(([key, count]) => {
-			const [idA, idB] = key.split('|');
-			const countA = statisticsCounts[idA] || 0;
-			const countB = statisticsCounts[idB] || 0;
+			const [idA, idB] = JSON.parse(key) as [string, string];
+			const countA = sampleCounts[idA] || 0;
+			const countB = sampleCounts[idB] || 0;
 
-			const percent = (count / totalEntries) * 100;
-			const probA = countA / totalEntries;
-			const probB = countB / totalEntries;
+			const percent = (count / sampled.length) * 100;
+			const probA = countA / sampled.length;
+			const probB = countB / sampled.length;
 			const lift = probA * probB > 0 ? percent / 100 / (probA * probB) : 0;
 
 			return { idA, idB, count, percent, probA, probB, lift };
 		});
-		console.timeEnd('(3-1) Correlations Calculation Time');
-		return correlations;
+		return {
+			correlations,
+			message: totalEntries > maxCorrelationEntries ? t.correlationLimitMessage : ''
+		};
 	});
 
 	let sortedTopCorrelations = $derived.by(() => {
-		console.time('(3-2) Correlation Sorting Time');
-
-		// Create a copy to make sure it's reactive
-		const correlationsCopy = [...topCorrelations];
-		const sorted = correlationsCopy.sort(correlationSortFunction);
-		console.timeEnd('(3-2) Correlation Sorting Time');
-		return sorted;
+		return [...correlationResult.correlations].sort(correlationSortFunction);
 	});
 
 	let slicedSortedTopCorrelations = $derived.by(() => {
-		console.time('(3-3) Correlation Slicing Time');
-
-		const sliced = sortedTopCorrelations.slice(0, correlationLimit);
-		console.timeEnd('(3-3) Correlation Slicing Time');
-		return sliced;
+		return sortedTopCorrelations.slice(0, correlationLimit);
 	});
 </script>
 
@@ -94,7 +95,7 @@
 	<p class="text-red-600 italic">{t.correlationDisabled}</p>
 {/if}
 <div class="correlation-grid">
-	<p id="correlationTableMessage" class="text-gray-600 italic">{message}</p>
+	<p id="correlationTableMessage" class="text-gray-600 italic">{correlationResult.message}</p>
 	{#each slicedSortedTopCorrelations as corr}
 		{@const objA = objectMap[corr.idA]}
 		{@const objB = objectMap[corr.idB]}
@@ -117,6 +118,23 @@
 </div>
 
 <style>
+	#correlations {
+		margin-bottom: 2rem;
+	}
+	#correlationSort {
+		margin-bottom: 1rem;
+	}
+	.number-input {
+		width: 60px;
+		padding: 0.25rem;
+		border: 1px solid #d1d5db;
+		border-radius: 0.375rem;
+		background-color: white;
+		font-size: 0.875rem;
+		color: #111827;
+		cursor: pointer;
+		margin-left: 1rem;
+	}
 	.correlation-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

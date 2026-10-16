@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { translations } from '$lib/translations';
-	import { ProcessingData } from '$lib/utils';
-	import type { LogEntry, correlationObject, Word } from '$lib/types';
+	import type { LogEntry, Word } from '$lib/types';
 	import CorrelationTable from './correlationTable.svelte';
 
 	// 1. Svelte 5 Props
@@ -12,7 +11,7 @@
 	let timeRange = $state('all'); // 'all', '24h', '7d', '30d'
 	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let selectedFilterChoice = $state('');
-	let selectedFilterChoiceCount = $state(3);
+	let selectedFilterChoiceCount = $state(0);
 	let isLogarithmicTime = $state(false);
 
 	// 3. Derived Helpers
@@ -26,30 +25,28 @@
 	// =================================================================================================
 	let parsedLogData: LogEntry[] = $derived(
 		logData.map((entry) => {
-			let d: any = {};
-			try {
-				d = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-
-				// Optimization: Pre-sort choices once here to avoid sorting in the O(N) loop later
-				if (d?.selectedChoices?.length) {
-					// Copy to avoid mutating original if it was passed as object
-					d.selectedChoices = [...d.selectedChoices].sort();
+			let parsedData = entry.parsedData;
+			if (parsedData == null) {
+				try {
+					parsedData = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+				} catch {
+					parsedData = {};
 				}
-			} catch (e) {
-				/* ignore */
 			}
 
+			if (Array.isArray(parsedData?.selectedChoices)) {
+				parsedData = { ...parsedData, selectedChoices: [...parsedData.selectedChoices].sort() };
+			}
 			return {
 				...entry,
 				data: null, // Free up memory
-				parsedData: d, // Store parsed data
-				timestamp: new Date(entry.created_at).getTime() // Store numeric timestamp for fast filtering
+				parsedData: parsedData || {},
+				timestamp: entry.timestamp ?? new Date(entry.created_at).getTime()
 			};
 		})
 	);
 
 	let filteredLogData = $derived.by(() => {
-		console.time('(B) Applying filters to log data...');
 		let data = parsedLogData;
 
 		// 1. Time Filter (Numeric comparison is faster)
@@ -59,23 +56,10 @@
 			if (timeRange === '24h') cutoff -= 24 * 60 * 60 * 1000;
 			if (timeRange === '7d') cutoff -= 7 * 24 * 60 * 60 * 1000;
 			if (timeRange === '30d') cutoff -= 30 * 24 * 60 * 60 * 1000;
-			data = data.filter((e) => e.timestamp ?? 0 >= cutoff);
+			data = data.filter((e) => (e.timestamp ?? 0) >= cutoff);
 		}
 
-		// 2. Unique Users
-		if (uniqueUsersOnly) {
-			const latestEntries = new Map();
-			let uidSet = new Set();
-			for (const entry of data) {
-				if (!uidSet.has(entry.uid)) {
-					latestEntries.set(entry.uid, entry);
-					uidSet.add(entry.uid);
-				}
-			}
-			data = Array.from(latestEntries.values());
-		}
-
-		// 3. Filter by Choice
+		// 2. Filter by Choice
 		if (selectedFilterChoice != '') {
 			data = data.filter(
 				(entry) =>
@@ -92,12 +76,21 @@
 			);
 		}
 
-		console.timeEnd('(B) Applying filters to log data...');
+		// 3. Keep the latest matching record for each user.
+		if (uniqueUsersOnly) {
+			const latestEntries = new Map<string, LogEntry>();
+			for (const entry of data) {
+				if (!latestEntries.has(entry.uid)) latestEntries.set(entry.uid, entry);
+			}
+			data = Array.from(latestEntries.values());
+		}
+
 		return data;
 	});
 
+	let uniqueVisitorCount = $derived(new Set(filteredLogData.map((entry) => entry.uid)).size);
+
 	let statisticsCounts = $derived.by(() => {
-		console.time('(C) Calculating global statistics counts...');
 		const counts: Record<string, number> = {};
 		for (const entry of filteredLogData) {
 			const choices = entry.parsedData.selectedChoices;
@@ -107,12 +100,10 @@
 				}
 			}
 		}
-		console.timeEnd('(C) Calculating global statistics counts...');
 		return counts;
 	});
 
 	let objectMap = $derived.by(() => {
-		console.time('(D) Building object map...');
 		const map: Record<string, any> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -123,12 +114,10 @@
 				}
 			}
 		}
-		console.timeEnd('(D) Building object map...');
 		return map;
 	});
 
 	let objectToRowMap = $derived.by(() => {
-		console.time('(E) Building object to row map...');
 		const map: Record<string, { id: string; title: string }> = {};
 		if (projectData?.rows) {
 			for (const row of projectData.rows) {
@@ -139,7 +128,6 @@
 				}
 			}
 		}
-		console.timeEnd('(E) Building object to row map...');
 		return map;
 	});
 
@@ -149,8 +137,7 @@
 
 	// --- 1. Visitor Graph ---
 	let visitorGraphData = $derived.by(() => {
-		console.time('(1) Visitor Graph Calculation Time');
-		const groupedData: Record<string, number> = {};
+		const groupedData: Record<string, Set<string>> = {};
 
 		for (const entry of filteredLogData) {
 			const date = new Date(entry.timestamp ?? 0);
@@ -169,7 +156,8 @@
 				date.setHours(0, 0, 0, 0);
 				key = date.toISOString();
 			}
-			groupedData[key] = (groupedData[key] || 0) + 1;
+			groupedData[key] ??= new Set();
+			groupedData[key].add(entry.uid);
 		}
 
 		let sorted = Object.entries(groupedData)
@@ -180,21 +168,44 @@
 					label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:00`;
 				else label = `${date.getMonth() + 1}/${date.getDate()}`;
 
-				return { date: dateStr, count, timestamp: date.getTime(), label, accumulated: 0 };
+				return {
+					date: dateStr,
+					count: count.size,
+					visitors: count,
+					timestamp: date.getTime(),
+					label,
+					accumulated: 0
+				};
 			})
 			.sort((a, b) => a.timestamp - b.timestamp);
 
-		let sum = 0;
-		console.timeEnd('(1) Visitor Graph Calculation Time');
+		const maxGraphPoints = 120;
+		if (sorted.length > maxGraphPoints) {
+			const bucketSize = Math.ceil(sorted.length / maxGraphPoints);
+			sorted = Array.from({ length: Math.ceil(sorted.length / bucketSize) }, (_, index) => {
+				const start = index * bucketSize;
+				const group = sorted.slice(start, start + bucketSize);
+				const first = group[0];
+				const last = group[group.length - 1];
+				const visitors = new Set(group.flatMap((item) => [...item.visitors]));
+				return {
+					...first,
+					count: visitors.size,
+					visitors,
+					label: `${first.label}–${last.label}`
+				};
+			});
+		}
+
+		const accumulatedVisitors = new Set<string>();
 		return sorted.map((item) => {
-			sum += item.count;
-			return { ...item, accumulated: sum };
+			for (const visitor of item.visitors) accumulatedVisitors.add(visitor);
+			return { ...item, accumulated: accumulatedVisitors.size };
 		});
 	});
 
 	// --- 2. General Stats & Time Distribution ---
 	let generalData = $derived.by(() => {
-		console.time('(2) General Stats Calculation Time');
 		let totalTime = 0;
 		let timeCount = 0;
 		const viewports: Record<string, number> = {};
@@ -290,7 +301,6 @@
 			}
 		}
 
-		console.timeEnd('(2) General Stats Calculation Time');
 		return { stats, distribution };
 	});
 
@@ -300,8 +310,6 @@
 	// --- 4. Row Statistics (Heavily Optimized) ---
 	let rowStatistics = $derived.by(() => {
 		if (!projectData?.rows) return [];
-		console.time('(4) Row Statistics Calculation Time');
-
 		const result = projectData.rows.map((row: any) => {
 			const rowObjects = row.objects || [];
 			let rowTotal = 0;
@@ -329,15 +337,12 @@
 				objectStats: enrichedStats
 			};
 		});
-		console.timeEnd('(4) Row Statistics Calculation Time');
 		return result;
 	});
 
 	// --- 5. Exit Statistics ---
 	let exitRowStats = $derived.by(() => {
-		// console.log('(5) Calculating exit row statistics...');
 		if (filteredLogData.length === 0 || Object.keys(objectToRowMap).length === 0) return [];
-		console.time('(5) Exit Row Statistics Calculation Time');
 
 		const exitCounts: Record<string, number> = {};
 		let validExits = 0;
@@ -366,37 +371,34 @@
 			})
 			.sort((a, b) => b.count - a.count);
 
-		console.timeEnd('(5) Exit Row Statistics Calculation Time');
 		return result;
 	});
 
 	// --- 6. User Words (Moved out of HTML) ---
 	let wordStatistics = $derived.by(() => {
-		console.time('(6) User Word Statistics Calculation Time');
 		const wordStat: Record<string, Record<string, number>> = {};
 
 		for (const entry of filteredLogData) {
-			const words = entry.parsedData.words as Word[];
+			const words = entry.parsedData?.words as Word[] | undefined;
 			if (words && Array.isArray(words)) {
 				for (const word of words) {
 					if (word.replaceText == null) continue;
-					if (word.replaceText.trim() === '') word.replaceText = '(empty)';
-					word.replaceText = word.replaceText.trim();
+					const replaceText = word.replaceText.trim() || '(empty)';
 
 					// Register word occurrence
 					if (!wordStat[word.id]) {
-						wordStat[word.id] = { [`${word.replaceText}`]: 1 };
+						wordStat[word.id] = { [replaceText]: 1 };
 						continue;
 					}
 
 					const wordObj = wordStat[word.id];
 					// Register replaceText occurrence
-					if (!wordObj[word.replaceText]) {
-						wordObj[word.replaceText] = 1;
+					if (!wordObj[replaceText]) {
+						wordObj[replaceText] = 1;
 						continue;
 					}
 
-					wordObj[word.replaceText] += 1;
+					wordObj[replaceText] += 1;
 				}
 			}
 		}
@@ -408,16 +410,11 @@
 			return { id, totalCount, variants: variantArray };
 		});
 
-		console.timeEnd('(6) User Word Statistics Calculation Time');
-		console.log('Word Statistics:', result);
 		return result;
 	});
 
 	// --- 7. Repeated Choices (Moved out of HTML) ---
 	let repeatedChoiceStats = $derived.by(() => {
-		// console.log('(7) Calculating repeated choice statistics...');
-		console.time('(7) Repeated Choice Statistics Calculation Time');
-
 		const multiMap: Record<string, any> = {};
 		for (const entry of filteredLogData) {
 			const vars = entry.parsedData.multipleUseVariable;
@@ -439,7 +436,6 @@
 			}
 		}
 		const result = Object.values(multiMap).sort((a: any, b: any) => b.totalCount - a.totalCount);
-		console.timeEnd('(7) Repeated Choice Statistics Calculation Time');
 		return result;
 	});
 
@@ -524,12 +520,6 @@
 			</div>
 		</div>
 	</div>
-
-	{#if progressMessage}
-		<div class="alert" role="alert">
-			<p>{progressMessage}</p>
-		</div>
-	{/if}
 
 	<!-- Visitor Graph -->
 	<h2 id="visitor-graph">{t.visitorCount}</h2>
@@ -633,7 +623,11 @@
 		</div>
 		<div class="stat-card">
 			<h3>{t.totalVisitors}</h3>
-			<p class="stat-value">{filteredLogData.length}</p>
+			<p class="stat-value">{uniqueVisitorCount.toLocaleString()}</p>
+		</div>
+		<div class="stat-card">
+			<h3>{t.totalEntries}</h3>
+			<p class="stat-value">{filteredLogData.length.toLocaleString()}</p>
 		</div>
 		<div class="stat-card wide">
 			<h3>{t.topViewports}</h3>
@@ -729,7 +723,7 @@
 		{/if}
 	</div>
 
-	<CorrelationTable {t} {filteredLogData} {statisticsCounts} {objectMap} />
+	<CorrelationTable {t} {filteredLogData} {objectMap} />
 
 	<!-- User-Entered Words -->
 	<h2 id="user-words">{t.userEnteredWords || 'User-Entered Words'}</h2>
@@ -969,13 +963,6 @@
 	h3 {
 		margin-bottom: 10px;
 	}
-	.alert {
-		background-color: #fef9c3;
-		border-left: 4px solid #eab308;
-		color: #a16207;
-		padding: 1rem;
-		margin-bottom: 1rem;
-	}
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1158,13 +1145,6 @@
 	.font-normal {
 		font-weight: normal;
 	}
-	#correlations {
-		margin-bottom: 2rem;
-	}
-	#correlationSort {
-		margin-bottom: 1rem;
-	}
-
 	.chart-container {
 		background-color: white;
 		border: 1px solid #e5e7eb;
@@ -1193,57 +1173,6 @@
 		font-size: 2rem;
 		font-weight: bold;
 		color: #2563eb;
-	}
-	.number-input {
-		width: 60px;
-		padding: 0.25rem;
-		border: 1px solid #d1d5db;
-		border-radius: 0.375rem;
-		background-color: white;
-		font-size: 0.875rem;
-		color: #111827;
-		cursor: pointer;
-		margin-left: 1rem;
-	}
-	.correlation-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-		gap: 1rem;
-		margin-bottom: 2rem;
-	}
-	.correlation-card {
-		background-color: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.5rem;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
-	}
-	.correlation-pair {
-		font-weight: bold;
-		margin-bottom: 0.5rem;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		align-items: center;
-	}
-	.correlation-pair .separator {
-		color: #9ca3af;
-	}
-	.correlation-stat {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-	}
-	.correlation-stat .count {
-		font-size: 1.25rem;
-		font-weight: bold;
-		color: #2563eb;
-	}
-	.correlation-stat .percent {
-		color: #6b7280;
-		font-size: 0.875rem;
 	}
 	.rows-container {
 		display: flex;

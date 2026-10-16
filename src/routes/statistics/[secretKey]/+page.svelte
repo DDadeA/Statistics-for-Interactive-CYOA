@@ -12,8 +12,45 @@
 	// Project Data Handling
 	let projectData: any = null;
 	let progressMessage = '';
+	let loadError = '';
+	let isLoading = false;
+	let parserWorker: Worker | null = null;
+	let parserRequestId = 0;
+	const parserRequests = new Map<
+		number,
+		{ resolve: (entries: LogEntry[]) => void; reject: (error: Error) => void }
+	>();
 
 	$: t = translations[currentLang as keyof typeof translations];
+
+	interface LogPage {
+		results: LogEntry[];
+		hasMore: boolean;
+		nextCursor: string | null;
+	}
+
+	interface ParserResponse {
+		requestId: number;
+		entries?: LogEntry[];
+		error?: string;
+	}
+
+	function parseEntries(entries: LogEntry[]): Promise<LogEntry[]> {
+		if (!parserWorker) {
+			return Promise.reject(new Error(t.parserUnavailable));
+		}
+
+		const requestId = ++parserRequestId;
+		return new Promise((resolve, reject) => {
+			parserRequests.set(requestId, { resolve, reject });
+			try {
+				parserWorker?.postMessage({ requestId, entries });
+			} catch (error) {
+				parserRequests.delete(requestId);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
+	}
 
 	function setProgress(msg: string) {
 		progressMessage = msg;
@@ -99,17 +136,19 @@
 			return;
 		}
 
-		// Get most recent entry
-		const sortedData = [...logData].sort(
-			(a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-		);
-
 		let urlCount: { [key: string]: number } = {};
 
-		// const latestEntry = sortedData[0];
-		for (let entry of sortedData) {
-			const parsedData = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
-			let entryURL = parsedData.currentURL;
+		for (const entry of logData) {
+			let entryURL: string | undefined;
+			try {
+				const parsedData =
+					entry.parsedData ??
+					(typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data);
+				entryURL = parsedData?.currentURL;
+			} catch {
+				continue;
+			}
+			if (typeof entryURL !== 'string' || !entryURL) continue;
 			if (entryURL in urlCount) {
 				urlCount[entryURL]++;
 			} else {
@@ -117,65 +156,96 @@
 			}
 		}
 
-		console.log('URL counts:', urlCount);
-
-		// set Current URL from majority if multiple found
-		let currentURL = Object.keys(urlCount).reduce((a, b) => (urlCount[a] > urlCount[b] ? a : b));
-
-		// Remove parameters from URL
-		const urlObj = new URL(currentURL);
-		urlObj.search = '';
-		currentURL = urlObj.toString();
-
-		// Remove # fragment
-		currentURL = currentURL.split('#')[0];
-
-		if (!currentURL) {
+		const mostCommonUrl = Object.entries(urlCount).sort((a, b) => b[1] - a[1])[0]?.[0];
+		if (!mostCommonUrl) {
 			alert(t.noCurrentUrl);
 			return;
 		}
 
-		console.log('Found currentURL:', currentURL);
-		await main(currentURL);
+		try {
+			const urlObj = new URL(mostCommonUrl);
+			urlObj.search = '';
+			urlObj.hash = '';
+			await main(urlObj.toString());
+		} catch (error) {
+			console.error('Failed to load project data from log URLs:', error);
+			setProgress(t.errorFetching);
+		}
 	}
 
-	async function loadData(log_type: number = 1) {
-		if (!secretKey) return;
+	async function loadData() {
+		if (!secretKey || isLoading) return;
 
+		isLoading = true;
+		loadError = '';
 		setProgress(t.loadingStats);
-		// Handle the form submission logic here
-		// console.log('Secret Key submitted:', secretKey);
-		let result = await fetch(`/api/log?log_type=${log_type}`, {
-			method: 'GET',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${secretKey}`
+		const loadedEntries: LogEntry[] = [];
+		let cursor: string | null = null;
+		let pageNumber = 0;
+
+		try {
+			do {
+				const params = new URLSearchParams({ limit: '1000' });
+				if (cursor) params.set('cursor', cursor);
+
+				const response = await fetch(`/api/log?${params}`, {
+					headers: { Authorization: `Bearer ${secretKey}` }
+				});
+				if (!response.ok) {
+					throw new Error(
+						response.status === 401
+							? t.invalidSecretKey
+							: `${t.loadFailed} (HTTP ${response.status}).`
+					);
+				}
+
+				const page = (await response.json()) as LogPage;
+				if (!Array.isArray(page.results) || typeof page.hasMore !== 'boolean') {
+					throw new Error(t.invalidResponse);
+				}
+				if (page.hasMore && (!page.nextCursor || page.nextCursor === cursor)) {
+					throw new Error(t.missingCursor);
+				}
+
+				loadedEntries.push(...(await parseEntries(page.results)));
+				cursor = page.nextCursor;
+				pageNumber++;
+				setProgress(
+					`${t.loadingStats} ${loadedEntries.length.toLocaleString()} entries · page ${pageNumber}`
+				);
+
+				if (!page.hasMore) break;
+			} while (true);
+
+			logData = loadedEntries;
+			if (logData.length > 0) {
+				addToSavedProjects(secretKey, logData[0].project_id);
 			}
-		}).then((res) => res.json());
-
-		setProgress(t.statsLoaded);
-		setTimeout(() => setProgress(''), 3000);
-		console.log(result);
-		logData = result.results || [];
-		localStorage.setItem(`statistics_data_${secretKey}`, JSON.stringify(logData));
-
-		if (logData.length > 0) {
-			addToSavedProjects(secretKey, logData[0].project_id);
-		} else if (log_type === 1) {
-			// Try loading CSP logs if no regular logs found
-			await loadData(2);
+			setProgress(`${t.statsLoaded} ${logData.length.toLocaleString()} entries.`);
+			setTimeout(() => setProgress(''), 5000);
+		} catch (error) {
+			console.error('Failed to load statistics:', error);
+			loadError = error instanceof Error ? error.message : String(error);
+			setProgress('');
+		} finally {
+			isLoading = false;
 		}
 	}
 
 	function downloadData() {
-		const dataStr =
-			'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(logData, null, 2));
-		const downloadAnchorNode = document.createElement('a');
-		downloadAnchorNode.setAttribute('href', dataStr);
-		downloadAnchorNode.setAttribute('download', 'statistics_data.json');
-		document.body.appendChild(downloadAnchorNode); // required for firefox
-		downloadAnchorNode.click();
-		downloadAnchorNode.remove();
+		const exportEntries = logData.map(({ parsedData, timestamp, ...entry }) => ({
+			...entry,
+			data: JSON.stringify(parsedData ?? {})
+		}));
+		const blob = new Blob([JSON.stringify(exportEntries, null, 2)], {
+			type: 'application/json'
+		});
+		const downloadUrl = URL.createObjectURL(blob);
+		const downloadAnchor = document.createElement('a');
+		downloadAnchor.href = downloadUrl;
+		downloadAnchor.download = 'statistics_data.json';
+		downloadAnchor.click();
+		setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
 	}
 
 	function addToSavedProjects(secretKey: string, projectId: string) {
@@ -208,17 +278,30 @@
 			return;
 		}
 
-		const storedData = localStorage.getItem(`statistics_data_${secretKey}`);
-		if (storedData) {
-			try {
-				logData = JSON.parse(storedData);
-				if (logData.length > 0) {
-					addToSavedProjects(secretKey, logData[0].project_id);
-				}
-			} catch (e) {
-				console.error('Failed to parse stored data', e);
-			}
+		try {
+			parserWorker = new Worker(
+				new URL('../../../lib/components/stats.worker.ts', import.meta.url),
+				{ type: 'module' }
+			);
+		} catch (error) {
+			console.error('Failed to initialize the statistics parser:', error);
+			loadError = t.parserUnavailable;
+			return;
 		}
+		parserWorker.onmessage = (event: MessageEvent<ParserResponse>) => {
+			const pending = parserRequests.get(event.data.requestId);
+			if (!pending) return;
+			parserRequests.delete(event.data.requestId);
+			if (event.data.error) pending.reject(new Error(event.data.error));
+			else pending.resolve(event.data.entries ?? []);
+		};
+		parserWorker.onerror = (event) => {
+			const error = new Error(event.message || t.parserFailed);
+			for (const pending of parserRequests.values()) pending.reject(error);
+			parserRequests.clear();
+			parserWorker?.terminate();
+			parserWorker = null;
+		};
 
 		const storedProjectData = localStorage.getItem(`project_data_${secretKey}`);
 		if (storedProjectData) {
@@ -228,6 +311,8 @@
 				console.error('Failed to parse stored project data', e);
 			}
 		}
+
+		return () => parserWorker?.terminate();
 	});
 </script>
 
@@ -241,23 +326,39 @@
 	<div class="button-group">
 		<button
 			class="btn-primary"
+			disabled={isLoading}
 			on:click={() => {
 				loadData();
-			}}>{t.updateStatistics}</button
+			}}>{isLoading ? t.loadingStats : t.updateStatistics}</button
 		>
 		<button
 			class="btn-success"
+			disabled={isLoading || logData.length === 0}
 			on:click={() => {
 				updateProjectJson();
 			}}>{t.updateProjectJson}</button
 		>
 		<button
 			class="btn-secondary"
+			disabled={logData.length === 0}
 			on:click={() => {
 				downloadData();
 			}}>{t.downloadData}</button
 		>
 	</div>
+	{#if progressMessage}
+		<p class="load-status" role="status" aria-live="polite">{progressMessage}</p>
+	{/if}
+	{#if loadError}
+		<p class="load-error" role="alert">{loadError}</p>
+	{/if}
+	{#if logData.length > 0}
+		<p class="data-coverage">
+			{t.completeHistory}
+			{logData.length.toLocaleString()}
+			{t.loadedEntries}
+		</p>
+	{/if}
 
 	<StatisticsDashboard {logData} {projectData} {currentLang} {progressMessage}
 	></StatisticsDashboard>
@@ -270,6 +371,23 @@
 		margin: 0 auto;
 		padding: 20px;
 		position: relative;
+	}
+	.load-status,
+	.data-coverage {
+		margin: 0.75rem 0;
+		color: #4b5563;
+		font-size: 0.875rem;
+	}
+	.load-error {
+		margin: 0.75rem 0;
+		padding: 0.75rem 1rem;
+		border-left: 4px solid #dc2626;
+		background: #fef2f2;
+		color: #991b1b;
+	}
+	button:disabled {
+		cursor: wait;
+		opacity: 0.65;
 	}
 	.language-switcher {
 		position: absolute;
