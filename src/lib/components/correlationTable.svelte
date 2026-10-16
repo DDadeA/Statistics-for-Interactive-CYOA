@@ -9,6 +9,7 @@
 	let correlationSortFunction: (a: correlationObject, b: correlationObject) => number = $state(
 		correlationSortFunctions[0].value
 	);
+	let message: string = $state('');
 
 	let topCorrelations = $derived.by(() => {
 		if (!enableCorrelation) return [];
@@ -18,6 +19,12 @@
 		console.time('(3-1) Correlations Calculation Time');
 		const pairCounts = new Map<string, number>();
 		const totalEntries = filteredLogData.length;
+
+		// Too large data set, limit to 3000 entries for correlation calculation (N^2 complexity)
+		if (totalEntries.length > 3000) {
+			filteredLogData = filteredLogData.slice(0, 3000);
+			message = t.correlationLimitMessage;
+		}
 
 		for (const entry of filteredLogData) {
 			const choices = entry.parsedData.selectedChoices;
@@ -71,6 +78,8 @@
 	});
 </script>
 
+</style>
+
 <!-- Choice Correlations -->
 <h2 id="correlations">{t.choiceCorrelations} (top {correlationLimit})</h2>
 <select id="correlationSort" bind:value={correlationSortFunction}>
@@ -87,6 +96,7 @@
 	<p class="text-red-600 italic">{t.correlationDisabled}</p>
 {/if}
 <div class="correlation-grid">
+	<p id="correlationTableMessage" class="text-gray-600 italic">{message}</p>
 	{#each slicedSortedTopCorrelations as corr}
 		{@const objA = objectMap[corr.idA]}
 		{@const objB = objectMap[corr.idB]}
@@ -107,3 +117,48 @@
 		<p class="text-gray italic">{t.noCorrelations}</p>
 	{/if}
 </div>
+
+<style>
+	.correlation-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
+	.correlation-card {
+		background-color: #f9f9f9;
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		padding: 1rem;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.correlation-pair {
+		font-weight: bold;
+		margin-bottom: 0.5rem;
+	}
+
+	.separator {
+		margin: 0 0.5rem;
+		color: #888;
+	}
+
+	.correlation-stat {
+		display: flex;
+		flex-direction: column;
+		font-size: 0.9rem;
+		color: #555;
+	}
+
+	.lift {
+		color: #007bff;
+	}
+	.count {
+		color: #28a745;
+	}
+	.percent {
+		color: #6c757d;
+	}
+	
+</style>
