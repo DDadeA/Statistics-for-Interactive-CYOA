@@ -73,8 +73,7 @@ export const translations = {
 		correlationLimitMessage:
 			'Correlation calculation limited to 3000 entries for performance reasons.',
 		correlationDisabled: 'Correlations are disabled.',
-		totalEntries: 'Total Entries'
-
+		totalEntries: 'Total Entries',
 		more: 'more'
 	},
 	ko: {
