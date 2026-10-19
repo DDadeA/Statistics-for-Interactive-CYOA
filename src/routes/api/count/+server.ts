@@ -1,4 +1,3 @@
-import { query } from '$lib/utils';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { countData } from '$lib/types';
@@ -17,14 +16,13 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	const cached = await cache?.match(cacheKey);
 	if (cached) return cached;
 
-	const result = await query(
-		platform,
+	const result = await platform.env.DB.prepare(
 		`SELECT 
     (SELECT SUM(time_on_page) FROM logs) AS total_time_ms,
     (SELECT COUNT(DISTINCT uid) FROM logs) AS uid_count,
     (SELECT COUNT(*) FROM projects) AS project_count,
 	(SELECT COUNT(distinct data_hash) FROM logs) AS build_count;`
-	);
+	).all();
 
 	const data: countData = {
 		total_time_ms: result.results[0]?.total_time_ms as number,

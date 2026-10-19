@@ -1,4 +1,4 @@
-import { query, getHash } from '$lib/utils';
+import { getHash } from '$lib/utils';
 import { logPageResponse, parseLogPageParams } from '$lib/server/logs';
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
@@ -35,9 +35,11 @@ export async function GET({ request, platform }: { request: Request; platform: A
 	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
 	// Get project_id from projects table
-	let project = await query(platform, 'SELECT project_id FROM projects WHERE secret_key_hash = ?', [
-		secret_key_hash
-	]);
+	let project = await platform.env.DB.prepare(
+		'SELECT project_id FROM projects WHERE secret_key_hash = ?'
+	)
+		.bind(secret_key_hash)
+		.all();
 	if (project.results.length === 0) {
 		// Invalid secret key
 		return new Response('Unauthorized', { status: 401 });
@@ -116,8 +118,7 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		// [DB Insert] 검증 통과 후 실행
 		// ---------------------------------------------------------
 
-		let result = await query(
-			platform,
+		let result = await platform.env.DB.prepare(
 			`INSERT OR IGNORE INTO logs (
 				project_id, 
 				uid, 
@@ -129,8 +130,9 @@ export async function POST({ request, platform }: { request: Request; platform: 
 				data, 
 				data_hash, 
 				created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			[
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		)
+			.bind(
 				body.projectId,
 				userIPHash,
 				payload.eventType, // 위에서 검증된 payload 사용
@@ -141,8 +143,8 @@ export async function POST({ request, platform }: { request: Request; platform: 
 				rawDataString, // 문자열로 변환된 원본 데이터
 				await getHash(rawDataString, platform.env.pepper), // 해시 생성
 				new Date().toISOString()
-			]
-		);
+			)
+			.all();
 
 		return new Response('Log entry created', { status: 201, headers: corsHeaders });
 	} catch (error) {

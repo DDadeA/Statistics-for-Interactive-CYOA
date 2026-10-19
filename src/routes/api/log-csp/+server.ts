@@ -1,4 +1,4 @@
-import { query, getHash } from '$lib/utils';
+import { getHash } from '$lib/utils';
 import type { RequestHandler } from '@sveltejs/kit';
 
 export const OPTIONS: RequestHandler = async ({ request }) => {
@@ -67,8 +67,7 @@ export async function GET({ request, platform }: { request: Request; platform: A
 			});
 		}
 
-		let result = await query(
-			platform,
+		let result = await platform.env.DB.prepare(
 			`INSERT OR IGNORE INTO logs (
 				project_id, 
 				uid, 
@@ -80,8 +79,9 @@ export async function GET({ request, platform }: { request: Request; platform: A
 				data, 
 				data_hash, 
 				created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			[
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		)
+			.bind(
 				projectId,
 				userIPHash,
 				payload.eventType,
@@ -92,8 +92,8 @@ export async function GET({ request, platform }: { request: Request; platform: A
 				rawDataString,
 				await getHash(rawDataString, platform.env.pepper),
 				new Date().toISOString()
-			]
-		);
+			)
+			.all();
 
 		return new Response('Log entry created', { status: 201, headers: corsHeaders });
 	} catch (error) {

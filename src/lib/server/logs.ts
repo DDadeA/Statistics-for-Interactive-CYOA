@@ -1,5 +1,3 @@
-import { query } from '$lib/utils';
-
 export const MAX_PAGE_SIZE = 1000;
 
 export interface LogPageParams {
@@ -32,17 +30,17 @@ export async function fetchLogPage(
 	projectId: string,
 	{ limit, cursor }: LogPageParams
 ): Promise<LogPage> {
+	const DB = platform.env.DB;
 	const result =
 		cursor === null
-			? await query(platform, 'SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?', [
-					projectId,
-					limit + 1
-				])
-			: await query(
-					platform,
-					'SELECT * FROM logs WHERE project_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
-					[projectId, cursor, limit + 1]
-				);
+			? await DB.prepare('SELECT * FROM logs WHERE project_id = ? ORDER BY id DESC LIMIT ?')
+					.bind(projectId, limit + 1)
+					.all()
+			: await DB.prepare(
+					'SELECT * FROM logs WHERE project_id = ? AND id < ? ORDER BY id DESC LIMIT ?'
+				)
+					.bind(projectId, cursor, limit + 1)
+					.all();
 
 	const hasMore = result.results.length > limit;
 	const results = result.results.slice(0, limit);
