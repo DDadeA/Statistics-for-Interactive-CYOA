@@ -1,5 +1,50 @@
 export const MAX_PAGE_SIZE = 1000;
 
+export interface LogRow {
+	projectId: string;
+	uid: string;
+	eventType: string;
+	currentUrl: string;
+	referrer: string | null;
+	timeOnPage: number;
+	eventTimestamp: string;
+	data: string;
+	dataHash: string;
+}
+
+/**
+ * Inserts a log and updates the /api/count counters in one atomic batch.
+ * changes() reports whether the preceding INSERT OR IGNORE added a new uid / data_hash.
+ */
+export async function insertLog(DB: App.Platform['env']['DB'], row: LogRow) {
+	return DB.batch([
+		DB.prepare(
+			`INSERT INTO logs (
+				project_id, uid, event_type, current_url, referrer,
+				time_on_page, event_timestamp, data, data_hash, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		).bind(
+			row.projectId,
+			row.uid,
+			row.eventType,
+			row.currentUrl,
+			row.referrer,
+			row.timeOnPage,
+			row.eventTimestamp,
+			row.data,
+			row.dataHash,
+			new Date().toISOString()
+		),
+		DB.prepare(`UPDATE stats SET value = value + ? WHERE key = 'total_time_ms'`).bind(
+			row.timeOnPage
+		),
+		DB.prepare(`INSERT OR IGNORE INTO seen_uids (uid) VALUES (?)`).bind(row.uid),
+		DB.prepare(`UPDATE stats SET value = value + changes() WHERE key = 'uid_count'`),
+		DB.prepare(`INSERT OR IGNORE INTO seen_hashes (data_hash) VALUES (?)`).bind(row.dataHash),
+		DB.prepare(`UPDATE stats SET value = value + changes() WHERE key = 'build_count'`)
+	]);
+}
+
 export interface LogPageParams {
 	limit: number;
 	cursor: number | null;

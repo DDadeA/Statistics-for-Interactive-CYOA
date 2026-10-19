@@ -1,4 +1,5 @@
 import { getHash } from '$lib/utils';
+import { insertLog } from '$lib/server/logs';
 import type { RequestHandler } from '@sveltejs/kit';
 
 export const OPTIONS: RequestHandler = async ({ request }) => {
@@ -67,33 +68,17 @@ export async function GET({ request, platform }: { request: Request; platform: A
 			});
 		}
 
-		let result = await platform.env.DB.prepare(
-			`INSERT OR IGNORE INTO logs (
-				project_id, 
-				uid, 
-				event_type, 
-				current_url, 
-				referrer, 
-				time_on_page, 
-				event_timestamp, 
-				data, 
-				data_hash, 
-				created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		)
-			.bind(
-				projectId,
-				userIPHash,
-				payload.eventType,
-				payload.currentURL,
-				payload.referrer || null,
-				payload.timeOnPage || 0,
-				payload.timestamp,
-				rawDataString,
-				await getHash(rawDataString, platform.env.pepper),
-				new Date().toISOString()
-			)
-			.all();
+		await insertLog(platform.env.DB, {
+			projectId,
+			uid: userIPHash,
+			eventType: payload.eventType,
+			currentUrl: payload.currentURL,
+			referrer: payload.referrer || null,
+			timeOnPage: Number(payload.timeOnPage) || 0,
+			eventTimestamp: payload.timestamp,
+			data: rawDataString,
+			dataHash: await getHash(rawDataString, platform.env.pepper)
+		});
 
 		return new Response('Log entry created', { status: 201, headers: corsHeaders });
 	} catch (error) {

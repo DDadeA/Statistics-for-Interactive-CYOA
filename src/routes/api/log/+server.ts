@@ -1,5 +1,5 @@
 import { getHash } from '$lib/utils';
-import { logPageResponse, parseLogPageParams } from '$lib/server/logs';
+import { insertLog, logPageResponse, parseLogPageParams } from '$lib/server/logs';
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 
@@ -118,33 +118,17 @@ export async function POST({ request, platform }: { request: Request; platform: 
 		// [DB Insert] 검증 통과 후 실행
 		// ---------------------------------------------------------
 
-		let result = await platform.env.DB.prepare(
-			`INSERT OR IGNORE INTO logs (
-				project_id, 
-				uid, 
-				event_type, 
-				current_url, 
-				referrer, 
-				time_on_page, 
-				event_timestamp, 
-				data, 
-				data_hash, 
-				created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		)
-			.bind(
-				body.projectId,
-				userIPHash,
-				payload.eventType, // 위에서 검증된 payload 사용
-				payload.currentURL,
-				payload.referrer || null, // referrer는 없을 수도 있으니 null 처리
-				payload.timeOnPage || 0, // 없으면 0 처리
-				payload.timestamp,
-				rawDataString, // 문자열로 변환된 원본 데이터
-				await getHash(rawDataString, platform.env.pepper), // 해시 생성
-				new Date().toISOString()
-			)
-			.all();
+		await insertLog(platform.env.DB, {
+			projectId: body.projectId,
+			uid: userIPHash,
+			eventType: payload.eventType, // 위에서 검증된 payload 사용
+			currentUrl: payload.currentURL,
+			referrer: payload.referrer || null, // referrer는 없을 수도 있으니 null 처리
+			timeOnPage: Number(payload.timeOnPage) || 0, // 없으면 0 처리
+			eventTimestamp: payload.timestamp,
+			data: rawDataString, // 문자열로 변환된 원본 데이터
+			dataHash: await getHash(rawDataString, platform.env.pepper) // 해시 생성
+		});
 
 		return new Response('Log entry created', { status: 201, headers: corsHeaders });
 	} catch (error) {
