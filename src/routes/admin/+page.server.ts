@@ -3,7 +3,7 @@ export const load = async ({ platform }) => {
 		`SELECT 
   p.project_id,
   (
-    SELECT current_url 
+    SELECT current_url, created_at
     FROM logs 
     WHERE project_id = p.project_id 
     ORDER BY id DESC 
@@ -18,7 +18,8 @@ FROM projects p;`
 			projects: [
 				{
 					project_id: 'Missing No.',
-					sample_url: 'Backend server is okay, might be database issue.'
+					sample_url: 'Backend server is okay, might be database issue.',
+					last_updated: 'N/A'
 				}
 			]
 		};
@@ -26,10 +27,12 @@ FROM projects p;`
 
 	const projects = result.results.map((row) => ({
 		project_id: row.project_id as string,
-		sample_url: row.sample_url as string
+		sample_url: row.sample_url as string,
+		last_updated: row.created_at as string
 	}));
 
+	// Sort by last_updated in descending order
 	return {
-		projects
+		projects: projects.sort((a, b) => (b.last_updated ?? '').localeCompare(a.last_updated ?? ''))
 	};
 };
