@@ -70,12 +70,3 @@ export class ProcessingData {
 		this.currentStep = currentStep;
 	}
 }
-
-export const query = async (platform: App.Platform, query: string, params?: any[]) => {
-	// @ts-ignore
-	const DB = platform.env.DB;
-	const statement = DB.prepare(query).bind(...(params || []));
-	const result = await statement.all();
-
-	return result;
-};

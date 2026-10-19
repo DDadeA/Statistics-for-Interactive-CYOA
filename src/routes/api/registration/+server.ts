@@ -1,4 +1,4 @@
-import { query, getHash } from '$lib/utils';
+import { getHash } from '$lib/utils';
 import { isDisposableEmail } from 'disposable-email-domains-js';
 import { Resend } from 'resend';
 
@@ -33,11 +33,11 @@ export async function GET({ request, platform }: { request: Request; platform: A
 	const secret_key_hash = await getHash(secret_key, platform.env.pepper);
 
 	// Store in D1
-	let result = await query(
-		platform,
-		'INSERT INTO projects (project_id, secret_key_hash, created_at, email) VALUES (?, ?, ?, ?)',
-		[project_id, secret_key_hash, new Date().toISOString(), email]
-	);
+	let result = await platform.env.DB.prepare(
+		'INSERT INTO projects (project_id, secret_key_hash, created_at, email) VALUES (?, ?, ?, ?)'
+	)
+		.bind(project_id, secret_key_hash, new Date().toISOString(), email)
+		.all();
 
 	// Send email with project details
 	const html = `

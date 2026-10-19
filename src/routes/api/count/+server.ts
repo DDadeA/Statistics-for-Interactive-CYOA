@@ -1,4 +1,3 @@
-import { query } from '$lib/utils';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { countData } from '$lib/types';
@@ -10,27 +9,24 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 		return json({ error: 'This message should not be shown. code: CT01' }, { status: 500 });
 	}
 
-	// These totals scan the whole logs table, so serve them from the edge cache when possible
+	// Totals come from the stats counters maintained by insertLog, so this stays cheap on a cache miss
 	const cache =
 		typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
 	const cacheKey = new Request(new URL(request.url).origin + '/api/count', { method: 'GET' });
 	const cached = await cache?.match(cacheKey);
 	if (cached) return cached;
 
-	const result = await query(
-		platform,
-		`SELECT 
-    (SELECT SUM(time_on_page) FROM logs) AS total_time_ms,
-    (SELECT COUNT(DISTINCT uid) FROM logs) AS uid_count,
-    (SELECT COUNT(*) FROM projects) AS project_count,
-	(SELECT COUNT(distinct data_hash) FROM logs) AS build_count;`
-	);
+	const [counters, projects] = await platform.env.DB.batch<Record<string, unknown>>([
+		platform.env.DB.prepare('SELECT key, value FROM stats'),
+		platform.env.DB.prepare('SELECT COUNT(*) AS project_count FROM projects')
+	]);
+	const stats = Object.fromEntries(counters.results.map((row) => [row.key, row.value]));
 
 	const data: countData = {
-		total_time_ms: result.results[0]?.total_time_ms as number,
-		uid_count: result.results[0]?.uid_count as number,
-		project_count: result.results[0]?.project_count as number,
-		build_count: result.results[0]?.build_count as number
+		total_time_ms: stats.total_time_ms as number,
+		uid_count: stats.uid_count as number,
+		project_count: projects.results[0]?.project_count as number,
+		build_count: stats.build_count as number
 	};
 
 	const response = json(data, {

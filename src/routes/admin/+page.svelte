@@ -11,7 +11,9 @@
 	<select bind:value={selectedProjectId}>
 		<option value="" disabled>Select a project</option>
 		{#each data.projects as project}
-			<option value={project.project_id}>{project.project_id} - {project.sample_url}</option>
+			<option value={project.project_id}
+				>{project.project_id} - {project.sample_url} - {project.last_updated}</option
+			>
 		{/each}
 	</select>
 </div>

@@ -2,14 +2,11 @@ export const load = async ({ platform }) => {
 	const result = await platform?.env.DB.prepare(
 		`SELECT 
   p.project_id,
-  (
-    SELECT current_url 
-    FROM logs 
-    WHERE project_id = p.project_id 
-    ORDER BY id DESC 
-    LIMIT 1
-  ) AS sample_url
-FROM projects p;`
+  l.current_url AS sample_url,
+  l.created_at AS last_updated
+FROM projects p
+LEFT JOIN logs l
+  ON l.id = (SELECT MAX(id) FROM logs WHERE project_id = p.project_id);`
 	).all();
 
 	// No projects found, might be DB issue
@@ -18,7 +15,8 @@ FROM projects p;`
 			projects: [
 				{
 					project_id: 'Missing No.',
-					sample_url: 'Backend server is okay, might be database issue.'
+					sample_url: 'Backend server is okay, might be database issue.',
+					last_updated: 'N/A'
 				}
 			]
 		};
@@ -26,10 +24,12 @@ FROM projects p;`
 
 	const projects = result.results.map((row) => ({
 		project_id: row.project_id as string,
-		sample_url: row.sample_url as string
+		sample_url: row.sample_url as string,
+		last_updated: row.last_updated as string
 	}));
 
+	// Sort by last_updated in descending order
 	return {
-		projects
+		projects: projects.sort((a, b) => (b.last_updated ?? '').localeCompare(a.last_updated ?? ''))
 	};
 };
