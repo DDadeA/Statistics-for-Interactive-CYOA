@@ -115,17 +115,26 @@
 		showGuideModal = false;
 		selectedProject = null;
 	};
+
+	const deleteProject = (secretKey: string) => {
+		if (
+			!confirm(
+				`Are you sure? You can always re-add the project later using the key ${secretKey.substring(0, 8)}...`
+			)
+		) {
+			return;
+		}
+		projects = projects.filter((project) => project.secretKey !== secretKey);
+		updateLocalStorage();
+	};
 </script>
 
 <div class="page-wrapper">
 	<section class="hero">
 		<div class="hero-content">
-			<h1 class="title">
-				Simple Statistic Services for Interactive CYOA <span class="acronym">(SSSIC)</span>
-			</h1>
-			<p class="subtitle">Empower your interactive stories with real-time analytics.</p>
+			<h1 class="title">Statistics for Interactive CYOA</h1>
 
-			<div class="stat-container">
+			<!-- <div class="stat-container">
 				<div class="stat-value">{count_data.total_time_ms.toLocaleString()}</div>
 				<div class="stat-label">hours recorded</div>
 				<br />
@@ -134,11 +143,12 @@
 				<br />
 				<div class="stat-value">{count_data.project_count.toLocaleString()}</div>
 				<div class="stat-label">projects registered</div>
-			</div>
+			</div> -->
 
 			<div class="hero-actions">
-				<button onclick={openCreateModal} class="btn primary large">New Project</button>
-				<button onclick={handleAddExisting} class="btn secondary large">Add Existing Project</button
+				<button onclick={openCreateModal} class="btn primary large">Create New Project</button>
+				<button onclick={handleAddExisting} class="btn secondary large"
+					>Register Existing Key</button
 				>
 			</div>
 		</div>
@@ -156,6 +166,9 @@
 					<div class="card-actions">
 						<a href="/statistics/{project.secretKey}" class="btn link">Go to Statistics</a>
 						<button onclick={() => openGuide(project)} class="btn info">Initialization Guide</button
+						>
+						<button onclick={() => deleteProject(project.secretKey)} class="btn danger"
+							>Delete Project</button
 						>
 					</div>
 				</div>
@@ -177,7 +190,6 @@
 		<div class="modal" onclick={(e) => e.stopPropagation()}>
 			<h2>Create New Project</h2>
 			<p class="modal-desc">Enter your email address to receive your project Secret Key.</p>
-
 			<div class="input-group">
 				<input
 					type="email"
