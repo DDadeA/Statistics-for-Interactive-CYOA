@@ -3,7 +3,7 @@
 	import { translations } from '$lib/translations';
 	import type { LogEntry } from '$lib/types';
 	import StatisticsDashboard from '$lib/components/statisticsDashboard.svelte';
-	import { finderUrl, proxyUrl, fetchWithProgress } from '$lib/utils';
+	import { finderUrl, proxyUrl, fetchWithProgress, cleanURL } from '$lib/utils';
 	import { loadAllLogs } from '$lib/logLoader';
 
 	/** Cursor-paginated log endpoint, e.g. /api/log or /admin/api/log. */
@@ -106,9 +106,6 @@
 	const MAX_URL_OPTIONS = 20;
 	let selectedUrl = '';
 
-	// Strips the auto-generated `#%22...` (url-encoded quote) fragment appended by the logger fallback
-	const BLOB_FRAGMENT = /#(?:%22|").*$/s;
-
 	interface UrlOption {
 		url: string;
 		count: number;
@@ -131,7 +128,8 @@
 			}
 			if (typeof entryURL !== 'string' || !entryURL) continue;
 
-			const cleaned = entryURL.replace(BLOB_FRAGMENT, '');
+			// const cleaned = entryURL.replace(BLOB_FRAGMENT, '');
+			const cleaned = cleanURL(entryURL);
 			const hadBlob = cleaned !== entryURL;
 			const option = urls.get(cleaned);
 			if (option) {
@@ -312,7 +310,7 @@
 		</p>
 	{/if}
 
-	<StatisticsDashboard {logData} {projectData} {currentLang} {progressMessage}
+	<StatisticsDashboard {logData} {projectData} {currentLang} {progressMessage} {urlOptions}
 	></StatisticsDashboard>
 </div>
 

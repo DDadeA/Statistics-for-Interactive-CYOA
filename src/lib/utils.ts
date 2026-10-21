@@ -70,3 +70,12 @@ export class ProcessingData {
 		this.currentStep = currentStep;
 	}
 }
+
+const BLOB_FRAGMENT = /#(?:%22|").*$/s;
+
+export function cleanURL(url: string) {
+	// remove parameters and blob fragment from the URL
+	const urlObj = new URL(url, window.location.origin);
+	url = urlObj.origin + urlObj.pathname;
+	return url.replace(BLOB_FRAGMENT, '');
+}

@@ -2,19 +2,27 @@
 	import { translations } from '$lib/translations';
 	import type { LogEntry, Word } from '$lib/types';
 	import CorrelationTable from './correlationTable.svelte';
+	import { cleanURL } from '$lib/utils';
 
-	// 1. Svelte 5 Props
-	let { logData = [], projectData = null, progressMessage = '', currentLang = 'en' } = $props();
+	let {
+		logData = [],
+		projectData = null,
+		progressMessage = '',
+		currentLang = 'en',
+		urlOptions = []
+	} = $props();
 
-	// 2. State (UI Controls)
+	// Filters
 	let uniqueUsersOnly = $state(false);
 	let timeRange = $state('all'); // 'all', '24h', '7d', '30d'
-	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let selectedFilterChoice = $state('');
 	let selectedFilterChoiceCount = $state(0);
+	let urlFilter = $state(''); // ''==no filter.
+
+	// display option
+	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let isLogarithmicTime = $state(false);
 
-	// 3. Derived Helpers
 	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
 	let original_url = $derived(
 		logData.length > 0 && logData[0].current_url ? logData[0].current_url : ''
@@ -66,6 +74,14 @@
 					entry.parsedData.selectedChoices &&
 					entry.parsedData.selectedChoices.includes(selectedFilterChoice)
 			);
+		}
+
+		// 3. URL Filter
+		if (urlFilter != '') {
+			data = data.filter((entry) => {
+				const currentUrl = cleanURL(entry.parsedData.current_url);
+				return currentUrl && currentUrl.includes(urlFilter);
+			});
 		}
 
 		if (selectedFilterChoiceCount > 0) {
@@ -532,7 +548,7 @@
 			<div class="select-group">
 				<label for="filterChoice">{t.filterByChoice}</label>
 				<select id="filterChoice" bind:value={selectedFilterChoice}>
-					<option value="">{t.allChoices}</option>
+					<option value="">{t.none}</option>
 					{#each allKnownChoices as choice}
 						<option value={choice}>{choice}</option>
 					{/each}
@@ -546,6 +562,15 @@
 					min="0"
 					bind:value={selectedFilterChoiceCount}
 				/>
+			</div>
+			<div class="select-group">
+				<label for="urlFilter">{t.projectUrl}</label>
+				<select id="urlFilter" bind:value={urlFilter}>
+					<option value="">{t.none}</option>
+					{#each urlOptions as option}
+						<option value={option.url}>{option.count.toLocaleString()} · {option.url}</option>
+					{/each}
+				</select>
 			</div>
 		</div>
 	</div>
