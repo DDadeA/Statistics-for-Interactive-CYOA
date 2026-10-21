@@ -2,19 +2,27 @@
 	import { translations } from '$lib/translations';
 	import type { LogEntry, Word } from '$lib/types';
 	import CorrelationTable from './correlationTable.svelte';
+	import { cleanURL } from '$lib/utils';
 
-	// 1. Svelte 5 Props
-	let { logData = [], projectData = null, progressMessage = '', currentLang = 'en' } = $props();
+	let {
+		logData = [],
+		projectData = null,
+		progressMessage = '',
+		currentLang = 'en',
+		urlOptions = []
+	} = $props();
 
-	// 2. State (UI Controls)
+	// Filters
 	let uniqueUsersOnly = $state(false);
 	let timeRange = $state('all'); // 'all', '24h', '7d', '30d'
-	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let selectedFilterChoice = $state('');
 	let selectedFilterChoiceCount = $state(0);
+	let urlFilter = $state(''); // ''==no filter.
+
+	// display option
+	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let isLogarithmicTime = $state(false);
 
-	// 3. Derived Helpers
 	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
 	let original_url = $derived(
 		logData.length > 0 && logData[0].current_url ? logData[0].current_url : ''
@@ -66,6 +74,14 @@
 					entry.parsedData.selectedChoices &&
 					entry.parsedData.selectedChoices.includes(selectedFilterChoice)
 			);
+		}
+
+		// 3. URL Filter
+		if (urlFilter != '') {
+			data = data.filter((entry) => {
+				const currentUrl = cleanURL(entry.current_url);
+				return currentUrl && currentUrl.includes(urlFilter);
+			});
 		}
 
 		if (selectedFilterChoiceCount > 0) {
@@ -495,7 +511,7 @@
 <div>
 	<!-- Table of Contents -->
 	<div class="toc">
-		<h3>{t.toc}</h3>
+		<h2>{t.toc}</h2>
 		<ul>
 			<li><a href="#controls">{t.controls}</a></li>
 			<li><a href="#visitor-graph">{t.visitorGraph}</a></li>
@@ -510,7 +526,7 @@
 		</ul>
 	</div>
 
-	<h1 id="controls">{t.statisticsControls}</h1>
+	<h2 id="controls">{t.statisticsControls}</h2>
 	<div class="controls-section">
 		<div class="filters">
 			<label class="toggle">
@@ -530,18 +546,9 @@
 			</div>
 
 			<div class="select-group">
-				<label for="timeUnit">{t.groupBy}</label>
-				<select id="timeUnit" bind:value={timeUnit}>
-					<option value="week">{t.week}</option>
-					<option value="day">{t.day}</option>
-					<option value="hour">{t.hour}</option>
-				</select>
-			</div>
-
-			<div class="select-group">
 				<label for="filterChoice">{t.filterByChoice}</label>
 				<select id="filterChoice" bind:value={selectedFilterChoice}>
-					<option value="">{t.allChoices}</option>
+					<option value="">{t.none}</option>
 					{#each allKnownChoices as choice}
 						<option value={choice}>{choice}</option>
 					{/each}
@@ -556,11 +563,28 @@
 					bind:value={selectedFilterChoiceCount}
 				/>
 			</div>
+			<div class="select-group">
+				<label for="urlFilter">{t.filterByUrl}</label>
+				<select id="urlFilter" bind:value={urlFilter}>
+					<option value="">{t.none}</option>
+					{#each urlOptions as option}
+						<option value={option.url}>{option.count.toLocaleString()} · {option.url}</option>
+					{/each}
+				</select>
+			</div>
 		</div>
 	</div>
 
 	<!-- Visitor Graph -->
 	<h2 id="visitor-graph">{t.visitorCount}</h2>
+	<div class="select-group">
+		<label for="timeUnit">{t.groupBy}</label>
+		<select id="timeUnit" bind:value={timeUnit}>
+			<option value="week">{t.week}</option>
+			<option value="day">{t.day}</option>
+			<option value="hour">{t.hour}</option>
+		</select>
+	</div>
 	<div class="chart-container">
 		{#if visitorGraphData.length > 0}
 			{@const maxCount = Math.max(...visitorGraphData.map((d) => d.count), 1)}
