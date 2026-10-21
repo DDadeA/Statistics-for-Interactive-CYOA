@@ -495,7 +495,7 @@
 <div>
 	<!-- Table of Contents -->
 	<div class="toc">
-		<h3>{t.toc}</h3>
+		<h2>{t.toc}</h2>
 		<ul>
 			<li><a href="#controls">{t.controls}</a></li>
 			<li><a href="#visitor-graph">{t.visitorGraph}</a></li>
@@ -510,7 +510,7 @@
 		</ul>
 	</div>
 
-	<h1 id="controls">{t.statisticsControls}</h1>
+	<h2 id="controls">{t.statisticsControls}</h2>
 	<div class="controls-section">
 		<div class="filters">
 			<label class="toggle">
@@ -526,15 +526,6 @@
 					<option value="30d">{t.last30Days}</option>
 					<option value="7d">{t.last7Days}</option>
 					<option value="24h">{t.last24Hours}</option>
-				</select>
-			</div>
-
-			<div class="select-group">
-				<label for="timeUnit">{t.groupBy}</label>
-				<select id="timeUnit" bind:value={timeUnit}>
-					<option value="week">{t.week}</option>
-					<option value="day">{t.day}</option>
-					<option value="hour">{t.hour}</option>
 				</select>
 			</div>
 
@@ -561,6 +552,14 @@
 
 	<!-- Visitor Graph -->
 	<h2 id="visitor-graph">{t.visitorCount}</h2>
+	<div class="select-group">
+		<label for="timeUnit">{t.groupBy}</label>
+		<select id="timeUnit" bind:value={timeUnit}>
+			<option value="week">{t.week}</option>
+			<option value="day">{t.day}</option>
+			<option value="hour">{t.hour}</option>
+		</select>
+	</div>
 	<div class="chart-container">
 		{#if visitorGraphData.length > 0}
 			{@const maxCount = Math.max(...visitorGraphData.map((d) => d.count), 1)}

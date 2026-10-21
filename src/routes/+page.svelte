@@ -133,6 +133,7 @@
 	<section class="hero">
 		<div class="hero-content">
 			<h1 class="title">Statistics for Interactive CYOA</h1>
+			<p class="subtitle">Track and analyze your CYOA projects effortlessly.</p>
 
 			<!-- <div class="stat-container">
 				<div class="stat-value">{count_data.total_time_ms.toLocaleString()}</div>
