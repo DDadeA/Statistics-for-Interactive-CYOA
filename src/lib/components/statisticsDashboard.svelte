@@ -79,7 +79,7 @@
 		// 3. URL Filter
 		if (urlFilter != '') {
 			data = data.filter((entry) => {
-				const currentUrl = cleanURL(entry.parsedData.current_url);
+				const currentUrl = cleanURL(entry.current_url);
 				return currentUrl && currentUrl.includes(urlFilter);
 			});
 		}
@@ -564,7 +564,7 @@
 				/>
 			</div>
 			<div class="select-group">
-				<label for="urlFilter">{t.projectUrl}</label>
+				<label for="urlFilter">{t.filterByUrl}</label>
 				<select id="urlFilter" bind:value={urlFilter}>
 					<option value="">{t.none}</option>
 					{#each urlOptions as option}
