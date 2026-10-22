@@ -93,16 +93,55 @@
 		}
 	};
 
-	const handleAddExisting = () => {
+	const handleAddExisting = async () => {
 		const existingSecretKey = prompt('Enter Secret Key:');
 
-		console.log('Existing Secret Key:', existingSecretKey);
-		if (existingSecretKey) {
+		if (!existingSecretKey?.trim()) {
+			return;
+		}
+
+		const secretKey = existingSecretKey.trim();
+		if (projects.some((project) => project.secretKey === secretKey)) {
+			alert('This project is already registered.');
+			return;
+		}
+
+		try {
+			const response = await fetch('/api/validate', {
+				method: 'GET',
+				headers: {
+					Authorization: `Bearer ${secretKey}`
+				}
+			});
+
+			if (!response.ok) {
+				alert(
+					response.status === 401
+						? 'Invalid secret key.'
+						: `Failed to validate key: ${await response.text()}`
+				);
+				return;
+			}
+
+			const data: { project_id: string } = await response.json();
+			if (!data.project_id) {
+				throw new Error('The validation response did not include a project ID.');
+			}
+
 			projects = [
 				...projects,
-				{ projectId: 'Unknown', secretKey: existingSecretKey, settings: undefined }
+				{
+					projectId: data.project_id,
+					secretKey,
+					settings: undefined
+				}
 			];
 			updateLocalStorage();
+		} catch (error) {
+			console.error('Failed to register existing project:', error);
+			alert(
+				`Error validating secret key: ${error instanceof Error ? error.message : String(error)}`
+			);
 		}
 	};
 
