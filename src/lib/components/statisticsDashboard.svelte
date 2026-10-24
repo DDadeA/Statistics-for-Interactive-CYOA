@@ -77,7 +77,7 @@
 				hashes.set(hash, { hash, firstSeen: timestamp, count: 1 });
 			}
 		}
-		return [...hashes.values()].sort((a, b) => a.firstSeen - b.firstSeen);
+		return [...hashes.values()].sort((a, b) => b.firstSeen - a.firstSeen);
 	});
 
 	let filteredLogData = $derived.by(() => {
