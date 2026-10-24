@@ -45,6 +45,7 @@ export const translations = {
 		filterByChoice: 'Required to be aggregated:',
 		minChoicesSelected: 'Minimum count of selected Choice',
 		filterByUrl: 'Filter by URL:',
+		filterByProjectHash: 'Filter by project version:',
 		none: 'None',
 		allChoices: 'All Choices',
 		visitorCount: 'Visitor Count',
@@ -97,7 +98,8 @@ export const translations = {
 		missingCursor: 'The statistics API did not provide a pagination cursor.',
 		parserUnavailable: 'Statistics parser is unavailable. Please reload the page.',
 		parserFailed: 'Statistics parser failed.',
-		more: 'more'
+		more: 'more',
+		close: 'Close'
 	},
 	ko: {
 		toc: '목차',
@@ -145,6 +147,7 @@ export const translations = {
 		filterByChoice: '선택지로 필터링:',
 		minChoicesSelected: '최소 선택 수로 필터링:',
 		filterByUrl: 'URL로 필터링:',
+		filterByProjectHash: '프로젝트 버전으로 필터링:',
 		none: '선택 없음',
 		allChoices: '모든 선택지',
 		visitorCount: '방문자 수',
@@ -196,6 +199,7 @@ export const translations = {
 		parserFailed: '통계 파서 오류입니다.',
 		correlationLimitMessage:
 			'성능을 위해 전체에 걸쳐 고르게 추출한 최대 3,000개 항목으로 계산합니다.',
-		more: '더보기'
+		more: '더보기',
+		close: '닫기'
 	}
 };

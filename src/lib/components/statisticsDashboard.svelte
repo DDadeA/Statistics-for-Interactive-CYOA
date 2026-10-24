@@ -18,10 +18,17 @@
 	let selectedFilterChoice = $state('');
 	let selectedFilterChoiceCount = $state(0);
 	let urlFilter = $state(''); // ''==no filter.
+	let projectHashFilter = $state(''); // ''==no filter.
 
 	// display option
 	let timeUnit = $state('day'); // 'day', 'hour', 'week'
 	let isLogarithmicTime = $state(false);
+
+	// word modal
+	let wordModalId = $state<string | null>(null);
+	let modalWord = $derived(
+		wordModalId === null ? null : (wordStatistics.find((w) => w.id === wordModalId) ?? null)
+	);
 
 	let t = $derived(translations[currentLang as keyof typeof translations] || translations['en']);
 	let original_url = $derived(
@@ -54,6 +61,26 @@
 		})
 	);
 
+	// Project versions (projectHash), ordered by when each first appeared in the logs
+	let projectHashOptions = $derived.by(() => {
+		const hashes = new Map<string, { hash: string; firstSeen: number; count: number }>();
+		for (const entry of parsedLogData) {
+			const raw = entry.parsedData?.projectHash;
+			if (raw == null || raw === '') continue;
+			const hash = String(raw);
+			const timestamp = entry.timestamp ?? 0;
+			const option = hashes.get(hash);
+			if (option) {
+				option.count++;
+				if (timestamp < option.firstSeen) option.firstSeen = timestamp;
+				if (timestamp > option.lastSeen) option.lastSeen = timestamp;
+			} else {
+				hashes.set(hash, { hash, firstSeen: timestamp, lastSeen: timestamp, count: 1 });
+			}
+		}
+		return [...hashes.values()].sort((a, b) => b.firstSeen - a.firstSeen);
+	});
+
 	let filteredLogData = $derived.by(() => {
 		let data = parsedLogData;
 
@@ -82,6 +109,11 @@
 				const currentUrl = cleanURL(entry.current_url);
 				return currentUrl && currentUrl.includes(urlFilter);
 			});
+		}
+
+		// 3-2. Project Hash Filter
+		if (projectHashFilter != '') {
+			data = data.filter((entry) => String(entry.parsedData?.projectHash) === projectHashFilter);
 		}
 
 		if (selectedFilterChoiceCount > 0) {
@@ -447,11 +479,18 @@
 	let quantitySort = $state<QuantitySort>('units');
 
 	const QUANTITY_BINS = [
-		{ label: '1', test: (n: number) => n === 1, color: '#bfdbfe' },
-		{ label: '2', test: (n: number) => n === 2, color: '#93c5fd' },
-		{ label: '3-5', test: (n: number) => n >= 3 && n <= 5, color: '#3b82f6' },
-		{ label: '6+', test: (n: number) => n >= 6, color: '#1d4ed8' }
+		{ label: '1', test: (n: number) => n === 1, color: '#3b82f6' },
+		{ label: '2', test: (n: number) => n === 2, color: '#22c55e' },
+		{ label: '3-5', test: (n: number) => n >= 3 && n <= 5, color: '#f59e0b' },
+		{ label: '6+', test: (n: number) => n >= 6, color: '#ef4444' }
 	];
+
+	let quantityModalId = $state<string | null>(null);
+	let modalItem = $derived(
+		quantityModalId === null
+			? null
+			: (itemQuantityStats.find((item) => item.id === quantityModalId) ?? null)
+	);
 
 	let itemQuantityStats = $derived.by(() => {
 		const byItem = new Map<string, number[]>();
@@ -473,8 +512,14 @@
 			const units = sorted.reduce((sum, n) => sum + n, 0);
 			const mid = Math.floor(sorted.length / 2);
 			const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+			const distributionMap = new Map<number, number>();
+			for (const n of sorted) distributionMap.set(n, (distributionMap.get(n) ?? 0) + 1);
 			return {
 				id,
+				distribution: [...distributionMap.entries()].map(([quantity, users]) => ({
+					quantity,
+					users
+				})),
 				users: counts.length,
 				adoption: (counts.length / totalEntries) * 100,
 				units,
@@ -507,6 +552,14 @@
 		return `${days}d ${hours % 24}h`;
 	}
 </script>
+
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key !== 'Escape') return;
+		if (wordModalId !== null) wordModalId = null;
+		if (quantityModalId !== null) quantityModalId = null;
+	}}
+/>
 
 <div>
 	<!-- Table of Contents -->
@@ -569,6 +622,17 @@
 					<option value="">{t.none}</option>
 					{#each urlOptions as option}
 						<option value={option.url}>{option.count.toLocaleString()} · {option.url}</option>
+					{/each}
+				</select>
+			</div>
+			<div class="select-group">
+				<label for="projectHashFilter">{t.filterByProjectHash}</label>
+				<select id="projectHashFilter" bind:value={projectHashFilter}>
+					<option value="">{t.none}</option>
+					{#each projectHashOptions as option}
+						<option value={option.hash}>
+							{new Date(option.firstSeen).toLocaleDateString()} ~ {new Date(option.lastSeen).toLocaleDateString()} · (count: {option.count}) · (hash: {option.hash})  
+						</option>
 					{/each}
 				</select>
 			</div>
@@ -847,10 +911,10 @@
 						</div>
 
 						{#if word.variants.length > 10}
-							<p class="text-xs text-gray text-center mt-2">
+							<button type="button" class="more-link" onclick={() => (wordModalId = word.id)}>
 								+ {word.variants.length - 10}
 								{t.more}
-							</p>
+							</button>
 						{/if}
 					</div>
 				{/each}
@@ -859,6 +923,50 @@
 			<p class="text-gray italic">{t.noWordsData || 'No user-entered words'}</p>
 		{/if}
 	</div>
+
+	{#if modalWord}
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div
+			class="modal-backdrop"
+			onclick={(e) => {
+				if (e.target === e.currentTarget) wordModalId = null;
+			}}
+		>
+			<div class="modal" role="dialog" aria-modal="true" aria-label={modalWord.id}>
+				<div class="modal-header">
+					<div>
+						<h3 style="margin-bottom: 0;">{modalWord.id}</h3>
+						<p class="text-sm text-gray">
+							{t.totalEntries}:
+							<span class="font-bold text-blue">{modalWord.totalCount}</span>
+						</p>
+					</div>
+					<button
+						type="button"
+						class="modal-close"
+						aria-label={t.close}
+						onclick={() => (wordModalId = null)}>&times;</button
+					>
+				</div>
+				<div class="modal-body">
+					{#each modalWord.variants as variant}
+						<div>
+							<div class="modal-variant-row">
+								<span class="break-words" style="font-weight: 500;">"{variant.replaceText}"</span>
+								<span class="text-gray">{variant.count}</span>
+							</div>
+							<div class="progress-bar-bg" style="height: 0.5rem; margin-top: 0;">
+								<div
+									class="progress-bar-fill"
+									style="width: {(variant.count / modalWord.totalCount) * 100}%; height: 0.5rem;"
+								></div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Item Quantities -->
 	<h2 id="repeated-choices">{t.repeatedChoices}</h2>
@@ -909,18 +1017,21 @@
 					<tbody>
 						{#each itemQuantityStats as item (item.id)}
 							{@const obj = objectMap[item.id]}
-							<tr>
-								<td class="item-cell">
-									{#if obj && obj.image}
-										<img
-											src={obj.image.startsWith('http') || obj.image.startsWith('data:')
-												? obj.image
-												: original_url + obj.image}
-											alt={obj.title}
-											class="choice-image"
-										/>
-									{/if}
-									<span class="break-words">{obj ? obj.title || item.id : item.id}</span>
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+							<tr class="clickable-row" onclick={() => (quantityModalId = item.id)}>
+								<td>
+									<button type="button" class="item-cell item-button">
+										{#if obj && obj.image}
+											<img
+												src={obj.image.startsWith('http') || obj.image.startsWith('data:')
+													? obj.image
+													: original_url + obj.image}
+												alt={obj.title}
+												class="choice-image"
+											/>
+										{/if}
+										<span class="break-words">{obj ? obj.title || item.id : item.id}</span>
+									</button>
 								</td>
 								<td>{item.users} <span class="text-gray">({item.adoption.toFixed(1)}%)</span></td>
 								<td
@@ -954,6 +1065,58 @@
 			<p class="text-gray italic">{t.noMultipleUseData}</p>
 		{/if}
 	</div>
+
+	{#if modalItem}
+		{@const obj = objectMap[modalItem.id]}
+		{@const maxUsers = Math.max(...modalItem.distribution.map((d) => d.users), 1)}
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div
+			class="modal-backdrop"
+			onclick={(e) => {
+				if (e.target === e.currentTarget) quantityModalId = null;
+			}}
+		>
+			<div class="modal" role="dialog" aria-modal="true" aria-label={modalItem.id}>
+				<div class="modal-header">
+					<div>
+						<h3 style="margin-bottom: 0;">{obj ? obj.title || modalItem.id : modalItem.id}</h3>
+						<p class="text-sm text-gray">
+							{t.takenBy}: <span class="font-bold text-blue">{modalItem.users}</span>
+							· {t.avgQuantity}: {modalItem.avg.toFixed(1)}
+							· {t.median}: {modalItem.median}
+							· {t.maxQuantity}: {modalItem.max}
+						</p>
+					</div>
+					<button
+						type="button"
+						class="modal-close"
+						aria-label={t.close}
+						onclick={() => (quantityModalId = null)}>&times;</button
+					>
+				</div>
+				<div class="modal-body">
+					<p class="text-sm text-gray" style="font-weight: 600;">{t.quantitySplit}</p>
+					{#each modalItem.distribution as d (d.quantity)}
+						{@const bin = QUANTITY_BINS.find((b) => b.test(d.quantity))}
+						<div class="distribution-row">
+							<span class="distribution-label">{d.quantity}x</span>
+							<div class="distribution-track">
+								<div
+									class="distribution-fill"
+									style="width: {(d.users / maxUsers) * 100}%; background: {bin?.color ??
+										'#3b82f6'}"
+								></div>
+							</div>
+							<span class="distribution-value">
+								{d.users}
+								<span class="text-gray">({((d.users / modalItem.users) * 100).toFixed(1)}%)</span>
+							</span>
+						</div>
+					{/each}
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Exit Analysis -->
 	<h2 id="exit-analysis">{t.exitPointAnalysis}</h2>
@@ -1530,5 +1693,117 @@
 	}
 	.mt-2 {
 		margin-top: 0.5rem;
+	}
+	.more-link {
+		display: block;
+		margin: 0.5rem auto 0;
+		padding: 0.25rem 0.5rem;
+		background: none;
+		border: none;
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		color: #2563eb;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+	.more-link:hover {
+		background-color: #eff6ff;
+	}
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 1000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		background-color: rgba(0, 0, 0, 0.5);
+	}
+	.modal {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		max-width: 32rem;
+		max-height: 80vh;
+		background-color: white;
+		border-radius: 0.5rem;
+		box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+	}
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 1rem;
+		padding: 1rem;
+		border-bottom: 1px solid #e5e7eb;
+	}
+	.modal-close {
+		background: none;
+		border: none;
+		font-size: 1.75rem;
+		line-height: 1;
+		color: #6b7280;
+		cursor: pointer;
+	}
+	.modal-close:hover {
+		color: #111827;
+	}
+	.modal-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 1rem;
+		overflow-y: auto;
+	}
+	.clickable-row {
+		cursor: pointer;
+	}
+	.clickable-row:hover {
+		background-color: #f9fafb;
+	}
+	.item-button {
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+		color: inherit;
+	}
+	.clickable-row:hover .item-button span {
+		text-decoration: underline;
+	}
+	.distribution-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		font-size: 0.875rem;
+	}
+	.distribution-label {
+		min-width: 3rem;
+		text-align: right;
+		font-weight: 500;
+	}
+	.distribution-track {
+		flex: 1;
+		height: 0.75rem;
+		background-color: #f3f4f6;
+		border-radius: 9999px;
+		overflow: hidden;
+	}
+	.distribution-fill {
+		height: 100%;
+		border-radius: 9999px;
+	}
+	.distribution-value {
+		min-width: 6rem;
+		white-space: nowrap;
+	}
+	.modal-variant-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		font-size: 0.875rem;
+		margin-bottom: 0.125rem;
 	}
 </style>
