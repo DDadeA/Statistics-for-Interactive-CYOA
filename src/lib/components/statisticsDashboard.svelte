@@ -18,6 +18,7 @@
 	let selectedFilterChoice = $state('');
 	let selectedFilterChoiceCount = $state(0);
 	let urlFilter = $state(''); // ''==no filter.
+	let projectHashFilter = $state(''); // ''==no filter.
 
 	// display option
 	let timeUnit = $state('day'); // 'day', 'hour', 'week'
@@ -60,6 +61,25 @@
 		})
 	);
 
+	// Project versions (projectHash), ordered by when each first appeared in the logs
+	let projectHashOptions = $derived.by(() => {
+		const hashes = new Map<string, { hash: string; firstSeen: number; count: number }>();
+		for (const entry of parsedLogData) {
+			const raw = entry.parsedData?.projectHash;
+			if (raw == null || raw === '') continue;
+			const hash = String(raw);
+			const timestamp = entry.timestamp ?? 0;
+			const option = hashes.get(hash);
+			if (option) {
+				option.count++;
+				if (timestamp < option.firstSeen) option.firstSeen = timestamp;
+			} else {
+				hashes.set(hash, { hash, firstSeen: timestamp, count: 1 });
+			}
+		}
+		return [...hashes.values()].sort((a, b) => a.firstSeen - b.firstSeen);
+	});
+
 	let filteredLogData = $derived.by(() => {
 		let data = parsedLogData;
 
@@ -88,6 +108,11 @@
 				const currentUrl = cleanURL(entry.current_url);
 				return currentUrl && currentUrl.includes(urlFilter);
 			});
+		}
+
+		// 3-2. Project Hash Filter
+		if (projectHashFilter != '') {
+			data = data.filter((entry) => String(entry.parsedData?.projectHash) === projectHashFilter);
 		}
 
 		if (selectedFilterChoiceCount > 0) {
@@ -596,6 +621,17 @@
 					<option value="">{t.none}</option>
 					{#each urlOptions as option}
 						<option value={option.url}>{option.count.toLocaleString()} · {option.url}</option>
+					{/each}
+				</select>
+			</div>
+			<div class="select-group">
+				<label for="projectHashFilter">{t.filterByProjectHash}</label>
+				<select id="projectHashFilter" bind:value={projectHashFilter}>
+					<option value="">{t.none}</option>
+					{#each projectHashOptions as option}
+						<option value={option.hash}>
+							{new Date(option.firstSeen).toLocaleDateString()} · {option.count.toLocaleString()} · {option.hash}
+						</option>
 					{/each}
 				</select>
 			</div>
