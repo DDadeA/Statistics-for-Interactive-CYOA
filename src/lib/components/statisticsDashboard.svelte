@@ -73,8 +73,9 @@
 			if (option) {
 				option.count++;
 				if (timestamp < option.firstSeen) option.firstSeen = timestamp;
+				if (timestamp > option.lastSeen) option.lastSeen = timestamp;
 			} else {
-				hashes.set(hash, { hash, firstSeen: timestamp, count: 1 });
+				hashes.set(hash, { hash, firstSeen: timestamp, lastSeen: timestamp, count: 1 });
 			}
 		}
 		return [...hashes.values()].sort((a, b) => b.firstSeen - a.firstSeen);
@@ -630,7 +631,7 @@
 					<option value="">{t.none}</option>
 					{#each projectHashOptions as option}
 						<option value={option.hash}>
-							{new Date(option.firstSeen).toLocaleDateString()} · {option.count.toLocaleString()} · {option.hash}
+							{new Date(option.firstSeen).toLocaleDateString()} ~ {new Date(option.lastSeen).toLocaleDateString()} · (count: {option.count}) · (hash: {option.hash})  
 						</option>
 					{/each}
 				</select>
